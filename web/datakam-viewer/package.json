@@ -1,0 +1,19 @@
+{
+  "name": "datakam-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local QA viewer for Datakam / OpenSpeedcam road-event data",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.14",
+    "typescript": "^5.4.5",
+    "vite": "^5.4.0"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4"
+  }
+}
