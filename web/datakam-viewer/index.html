@@ -28,6 +28,29 @@
           </div>
         </section>
 
+        <section class="panel" id="direction-panel">
+          <h2>Direction display</h2>
+          <label class="check-row">
+            <input type="checkbox" id="direction-arrows-toggle" checked />
+            Show raw source direction/facing arrows
+          </label>
+          <p class="hint">
+            DIRTYPE=1 draws one raw DIRECTION arrow. DIRTYPE=2 draws two opposite arrows. These visualize raw source fields only — the arrow points in the raw DIRECTION value, which checked examples suggest is sign/camera facing direction, not vehicle travel direction.
+          </p>
+        </section>
+
+        <section class="panel" id="manual-qa-panel">
+          <h2>Manual QA</h2>
+          <p class="hint">
+            Popup statuses are local notes on Datakam ExternalObservation candidates, not verified RoadEvents.
+          </p>
+          <p class="hint storage-hint">
+            Saved locally in this browser: localStorage key <code>roadahead.datakamViewer.manualQa.v1</code>. Use Export QA JSON to keep/share a copy.
+          </p>
+          <div id="qa-summary" class="qa-summary"></div>
+          <button id="export-qa-btn" class="secondary-btn" disabled>Export QA JSON</button>
+        </section>
+
         <section class="panel" id="ellipse-panel">
           <h2>Region filter (ellipse)</h2>
           <div class="field-row">
@@ -52,11 +75,11 @@
           </div>
           <div class="radio-group">
             <label>
-              <input type="radio" name="region-mode" value="all" checked />
+              <input type="radio" name="region-mode" value="all" />
               Show all parsed points
             </label>
             <label>
-              <input type="radio" name="region-mode" value="ellipse" />
+              <input type="radio" name="region-mode" value="ellipse" checked />
               Show only points inside ellipse
             </label>
           </div>
