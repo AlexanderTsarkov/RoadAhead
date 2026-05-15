@@ -28,6 +28,26 @@
           </div>
         </section>
 
+        <section class="panel" id="direction-panel">
+          <h2>Direction display</h2>
+          <label class="check-row">
+            <input type="checkbox" id="direction-arrows-toggle" checked />
+            Show source direction arrows
+          </label>
+          <p class="hint">
+            DIRTYPE=1 draws one DIRECTION arrow. DIRTYPE=2 draws two opposite arrows. This visualizes raw source fields only.
+          </p>
+        </section>
+
+        <section class="panel" id="manual-qa-panel">
+          <h2>Manual QA</h2>
+          <p class="hint">
+            Popup statuses are local notes on Datakam ExternalObservation candidates, not verified RoadEvents.
+          </p>
+          <div id="qa-summary" class="qa-summary"></div>
+          <button id="export-qa-btn" class="secondary-btn" disabled>Export QA JSON</button>
+        </section>
+
         <section class="panel" id="ellipse-panel">
           <h2>Region filter (ellipse)</h2>
           <div class="field-row">
