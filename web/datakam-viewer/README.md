@@ -32,9 +32,10 @@ Output goes to `dist/`. Do not deploy this viewer; it is a local QA tool only.
 - Per-type color-coded circle markers.
 - Per-type checkboxes to toggle visibility.
 - Popup with all raw + normalized fields for each point.
-- Source direction arrows:
-  - `DIRTYPE=1` draws one `DIRECTION` arrow;
+- Raw source direction/facing-direction arrows:
+  - `DIRTYPE=1` draws one raw `DIRECTION` arrow;
   - `DIRTYPE=2` draws two opposite arrows;
+  - arrows represent the raw source `DIRECTION` field (sign/camera facing direction candidate), **not** confirmed vehicle travel direction;
   - the sidebar toggle can show or hide arrows.
 - Popup controls for manual visual QA status and direction-semantics interpretation status.
 - Manual QA records are saved in browser `localStorage` under key `roadahead.datakamViewer.manualQa.v1` and can be exported as JSON.
@@ -66,9 +67,19 @@ Direction-semantics status values:
 - `opposite_of_vehicle_direction` — `DIRECTION` appears opposite to vehicle travel direction.
 - `unclear_or_wrong` — source direction is unclear or appears wrong.
 
-Direction-semantics hint shown in each popup: inspected examples suggest `DIRECTION` may be sign/camera facing direction, often opposite vehicle travel. This is a per-point interpretation only — record it per point and do not treat it as global truth.
+Direction-semantics hint shown in each popup: checked examples strongly suggest `DIRECTION` often means sign/camera facing direction, usually opposite vehicle travel direction. If this holds, vehicle travel direction ≈ `(DIRECTION + 180) mod 360`. Record interpretation per point; do not treat as global truth.
 
 These statuses are local QA notes. Exported JSON is evidence for future review, not Canon.
+
+## Manual QA findings
+
+Findings from inspecting many Datakam candidate points along the Yaroslavl-Moscow corridor. These are source-level manual QA evidence, not Canon.
+
+**DIRECTION semantics:** Across many checked points, `DIRECTION` strongly appears to represent sign/camera facing direction — generally toward the approaching vehicle — and is approximately opposite to vehicle travel direction. Formula: vehicle travel direction ≈ `(DIRECTION + 180) mod 360`. This is not yet proven globally; record interpretation per point.
+
+**TYPE=101 / speed_limit:** In inspected examples this type includes both ordinary speed-limit signs and settlement signs that imply a default speed regime (e.g. 60 km/h). Treat as a speed-regime candidate, not necessarily a literal standalone speed-limit-sign object.
+
+**TYPE=102 / road_bump overlapping markers:** Bidirectional arrows (`DIRTYPE=2`) on road bumps are expected and appear correct. Multiple rows may share the same coordinates, causing visual overlap. This is a known display limitation; no fix is planned for the current QA workflow.
 
 ## Data policy
 

@@ -64,11 +64,31 @@ The source `DIRECTION` value appears to be opposite of the applicable vehicle tr
 
 The source direction is unclear, inconsistent, or appears wrong.
 
+## Manual QA findings from inspected points
+
+These findings are based on manual inspection of many Datakam candidate points along the Yaroslavl-Moscow corridor. They are source-level manual QA evidence, not globally proven Canon.
+
+### Finding 1 — DIRECTION semantics
+
+Across many inspected points, the source `DIRECTION` field strongly appears to represent the direction the sign or camera is facing — i.e. generally toward the approaching vehicle — and is therefore approximately opposite to the vehicle's travel direction.
+
+Formula: if `DIRECTION` is the facing direction, the applicable vehicle travel direction is approximately `(DIRECTION + 180) mod 360`.
+
+This pattern is now strongly suspected from inspected examples but remains unproven globally. Every point should still be individually evaluated using the direction-semantics status field. Do not automatically invert `DIRECTION` in code until this is more broadly confirmed.
+
+### Finding 2 — TYPE=101 speed regime
+
+`TYPE=101 / speed_limit` in inspected examples includes both ordinary speed-limit signs and settlement entry/exit signs that imply a default speed regime (e.g. 60 km/h). The source type should therefore be read as a **speed-regime candidate**, not as a guarantee of a literal standalone speed-limit-sign object.
+
+### Finding 3 — Road bump overlapping markers
+
+For `TYPE=102 / road_bump` points, bidirectional arrows (`DIRTYPE=2`) are visually expected and appear correct. Multiple rows may share the same coordinates, causing markers to visually overlap. This is a known viewer display limitation but is not required to fix in the current QA workflow. It is a possible future viewer improvement.
+
 ## Direction-semantics observation note
 
-Based on manual inspection of a small number of examples along the Yaroslavl-Moscow route, the source `DIRECTION` field appears to represent the direction the camera or sign faces, which is often opposite to the applicable vehicle travel direction.
+Based on manual inspection of many points along the Yaroslavl-Moscow route, the source `DIRECTION` field is strongly suspected to represent the direction the camera or sign faces, which is generally opposite to the applicable vehicle travel direction. See "Manual QA findings" above for details and formula.
 
-This is **not a proven global rule** — it is a working hypothesis based on a limited sample. Every point should be evaluated individually using the direction-semantics status field. Do not assume this pattern holds globally without further validation.
+This is **not a proven global rule** — it is QA evidence from a limited geographic sample. Every point should be evaluated individually using the direction-semantics status field. Do not assume this pattern holds globally without further validation.
 
 The per-marker popup in the viewer includes a hint reflecting this observation.
 
@@ -79,7 +99,7 @@ The viewer visualizes raw source direction fields only:
 - `DIRTYPE=1` displays one arrow using `DIRECTION`.
 - `DIRTYPE=2` displays two opposite arrows using `DIRECTION` and `DIRECTION + 180°`.
 
-The arrow visualization does not prove what the source direction means. It exists to help the user compare source direction against road geometry and known objects.
+The arrows represent raw `DIRECTION` values from the source file — they visualize the **sign/camera facing direction candidate**, not confirmed vehicle travel direction. Based on QA findings, vehicle travel direction is likely approximately `(DIRECTION + 180) mod 360`. The arrows are provided to help the user compare source direction against road geometry and known objects.
 
 ## Data posture
 

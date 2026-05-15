@@ -606,7 +606,7 @@ function buildPopupHtml(row: SpeedcamRow): string {
         <span>Direction semantics</span>
         ${buildStatusSelect("direction", key, qa.directionSemanticsStatus, DIRECTION_SEMANTICS_STATUSES, DIRECTION_SEMANTICS_LABELS)}
       </label>
-      <p class="popup-hint">Observed examples suggest DIRECTION may be sign/camera facing direction, often opposite vehicle travel. Record interpretation per point.</p>
+      <p class="popup-hint">Checked examples suggest DIRECTION often means sign/camera facing direction, usually opposite vehicle travel. If so, vehicle travel ≈ (DIRECTION + 180) mod 360. Record interpretation per point.</p>
     </div>
   `;
 }
