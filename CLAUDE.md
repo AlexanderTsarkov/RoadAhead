@@ -1,161 +1,118 @@
-# Claude / Cursor Instructions (RoadAhead)
+# Claude / Cursor Instructions
+
+## Purpose
+
+This file defines stable operating rules for AI-assisted work in this repository.
+
+It is not a roadmap, not a product spec, and not a milestone plan. Current product context, active milestones, WIP notes, and implementation plans must live in docs, issues, PRs, or planning files — not in this policy file.
 
 ## Role
 
-Use AI assistants in this repository as planning, architecture, audit, and bounded execution partners.
+Use AI assistants as planning, architecture, audit, review, and bounded execution partners.
 
 AI may implement small, explicitly scoped changes when requested, but must not autonomously expand scope, refactor broadly, or convert product ideas into implementation requirements without an explicit plan.
 
-## Project Identity
+## Core Operating Principles
 
-RoadAhead is an early-stage product and engineering prototype for an overlay assistant for anticipatory road understanding.
+1. **Policy is stable; project state lives elsewhere.**  
+   Do not encode the current milestone, active feature, or temporary implementation plan in this file.
 
-Core positioning:
+2. **Small bounded changes.**  
+   Prefer narrow, reviewable tasks over large multi-area changes.
 
-> Not a navigator. Not an anti-radar. An overlay assistant for anticipatory road understanding.
+3. **Audit before meaningful implementation.**  
+   If a task changes architecture, data semantics, product behavior, driver-facing UX, or spans multiple areas, audit and plan before coding.
 
-Russian positioning:
+4. **WIP is not Canon.**  
+   Working notes, hypotheses, and scratch files are not implementation truth until explicitly promoted to Canon or captured in a decision record.
 
-> Не навигатор. Не антирадар. Overlay-ассистент упреждающего понимания дороги.
+5. **External data is not truth.**  
+   Third-party or public datasets are candidate inputs until verified according to the project’s data policy.
 
-The product helps the driver understand what is coming ahead on the road before the situation changes: speed-limit changes, settlements, cameras, hazardous road segments, poor road surface, and hard-to-see signs.
+6. **Private/raw data stays local by default.**  
+   Do not commit raw external datasets, secrets, personal logs, or private location data unless explicitly approved.
 
-## Always-on Invariants
+7. **Safety-sensitive UX requires explicit review.**  
+   Any in-drive, driver-facing, alerting, or attention-affecting UX must be treated as safety-sensitive and planned deliberately.
 
-Apply these invariants even when the current task does not explicitly mention them:
+8. **Do not add infrastructure casually.**  
+   Backend, accounts, sync, cloud storage, telemetry, large frameworks, or new service dependencies require explicit rationale and approval.
 
-1. **External data is not truth.** Datakam/OpenSpeedcam, Driver Helper, Signsign, OSM, and similar sources are candidate inputs only.
-2. **Verified RoadEvent is the trusted product layer.** External observations must be manually, visually, or field-verified before becoming trusted road events.
-3. **WIP is not Canon.** Working notes and hypotheses are not implementation requirements until promoted to Canon or captured in an explicit decision.
-4. **Do not build a navigator by accident.** Routing, turn-by-turn navigation, map replacement, or full navigation UX are out of scope unless explicitly approved.
-5. **Do not build an anti-radar by accident.** Cameras are one road-event type, not the product identity.
-6. **Driver safety dominates feature richness.** Any in-drive UI must be glanceable, low-distraction, and preferably one-tap.
-7. **Private and external raw data stay local by default.** Do not commit full external datasets, personal GPS tracks, or private trip data unless explicitly approved.
-8. **Direction matters.** Road events are often directional. Do not treat camera/sign points as directionless unless the source semantics or verification says so.
-
-## Current Phase
-
-Current milestone:
-
-**MVP-001: Datakam regional web viewer**
-
-Goal:
-
-Build a local web viewer that loads a Datakam/OpenSpeedcam-style `speedcam` file, filters it to a familiar region, and visualizes road-event candidates on a map for manual visual QA.
-
-This milestone is not about Android overlay implementation, navigation, routing, backend, accounts, or crowdsourcing.
-
-## Primary Responsibilities
+## Responsibilities
 
 For AI-assisted work, prioritize:
 
-- Product architecture and boundaries
-- Data model design
-- Road-event taxonomy
-- Data-source analysis
-- Documentation structure and canon discipline
-- Small, reviewable implementation slices
-- Test and validation planning
-- Risk identification before implementation
+- clarifying scope and non-goals;
+- identifying product and technical boundaries;
+- auditing existing repo state before implementation;
+- designing small execution slices;
+- preserving documentation discipline;
+- identifying risks and assumptions;
+- keeping changes reviewable;
+- reporting what changed and what remains uncertain.
 
 ## Forbidden Actions Unless Explicitly Asked
 
 Do not do the following unless the user explicitly requests it:
 
-- Make broad multi-file code changes.
-- Refactor unrelated code.
-- Mix refactor and behavior change in one step.
-- Convert WIP notes into Canon.
-- Treat external source data as verified product truth.
-- Commit raw external datasets or personal GPS tracks.
-- Add backend, accounts, sync, social/crowd features, or Android overlay code during the Datakam viewer milestone.
-- Scrape, reverse engineer, or OCR third-party navigation apps.
-- Add dependencies or frameworks without explaining why they are needed.
-- Merge, close, or delete branches/PRs without explicit approval.
-- Force-push without explicit approval.
+- make broad multi-file code changes;
+- perform unrelated refactoring;
+- mix refactor and behavior change in one step;
+- promote WIP to Canon;
+- rewrite product meaning or data semantics silently;
+- commit raw/private/external datasets;
+- add backend/accounts/sync/cloud infrastructure;
+- scrape, reverse engineer, or OCR third-party apps/services;
+- add dependencies without explaining why they are needed;
+- merge, close, or delete branches/PRs;
+- force-push or rewrite shared history.
 
 ## When to Stop
 
-Stop and ask for direction or produce an audit/plan instead of implementing when:
+Stop and ask for direction, or produce an audit/plan instead of implementing, when:
 
-- The task is ambiguous or can be solved in materially different ways.
-- The requested work crosses product, data, UI, and implementation boundaries.
-- The task would introduce new architecture or persistent data semantics.
-- The task would commit or publish external/private data.
-- The task requires changing Canon or promoting WIP to Canon.
-- The task touches safety-critical driving UX.
-- The task would require broad refactoring or unrelated cleanup.
+- the task is ambiguous or has materially different solution paths;
+- the work crosses product, data, UX, and implementation boundaries;
+- the task introduces new persistent data semantics;
+- the task touches safety-sensitive user interaction;
+- the task would publish or commit external/private data;
+- the task requires changing Canon or promoting WIP to Canon;
+- the task would require broad refactoring or unrelated cleanup.
 
 Small obvious fixes may proceed directly when the path is genuinely unambiguous.
-
-## RoadAhead Critical Zones
-
-Changes in these areas require explicit plan or confirmation:
-
-- RoadEvent canonical schema and semantics
-- ExternalObservation schema and source normalization
-- Datakam/OpenSpeedcam type/direction interpretation
-- Direction matching and event-ahead logic
-- Warning timing and comfortable deceleration model
-- Driver-facing overlay UX and in-drive interactions
-- Data-source licensing and repository data policy
-- Any future Android background location / overlay permission behavior
-
-## Data Policy
-
-Use this pipeline:
-
-```text
-ExternalSource
-  -> ExternalObservation
-  -> manual / visual / field verification
-  -> VerifiedRoadEvent
-  -> warning layer
-```
-
-Rules:
-
-- Preserve raw source fields when importing external data.
-- Normalize type names separately from raw source type values.
-- Keep source provenance: source name, source object id, import date, and raw payload/line when reasonable.
-- Mark imported data as `external_candidate` by default.
-- Do not show external candidates as trusted warnings unless explicitly enabled for test mode.
-- Do not silently overwrite verified road events with external source data.
-- Do not commit full external datasets to the repository.
-- Do not commit personal GPS tracks, trip logs, or private location data.
 
 ## Work Area vs Tech Area
 
 Classifier for where work lives is **Work Area**, not issue existence.
 
 - **Work Area** = type of work: Product Specs WIP / Implementation / Docs / Test / Research / Org
-- **Tech Area** = component or domain: Web Viewer / Data Import / RoadEvent Model / Android Overlay / UX / Backend / Documentation / Dev Workflow
+- **Tech Area** = component or domain: project-specific area such as Web, Mobile, Data Import, UX, Backend, Documentation, Dev Workflow, etc.
 
-### Routing Rules
+## Routing Rules
 
-Use these default locations once the folders exist:
+Use these default locations once the folders exist. If the repository uses a more specific documented structure, follow that structure.
 
 - **Product Specs WIP**  
-  Product options, hypotheses, road-event concepts, UX ideas, competitor/source research → `docs/product/wip/**`.  
+  Product options, hypotheses, UX ideas, models, open questions, and exploratory notes → `docs/product/wip/**` or the project’s WIP docs area.  
   WIP is not implementation truth until promoted.
 
 - **Canon**  
-  Stable product definitions, accepted data models, warning principles, and implementation-facing product truth → `docs/product/areas/**` or another explicit Canon location.
+  Stable product definitions, accepted data models, implementation-facing product truth, and long-lived principles → `docs/product/areas/**`, `docs/canon/**`, or another explicit Canon location.
 
 - **Decisions**  
   ADR-style decisions and tradeoffs → `docs/decisions/**`.
 
 - **Research**  
-  Durable external source analysis, format notes, and licensing notes → `docs/research/**`.
+  Durable source analysis, format notes, benchmark reviews, and licensing notes → `docs/research/**`.
 
 - **Implementation**  
   Source code, tools, schemas, and app code → relevant source folders. Temporary implementation notes may use `_working/**` if the directory exists.
 
 - **Test / Validation**  
-  Temporary logs and local experiments → `_working/**` or local untracked files. Durable validation reports → tracked docs.
+  Temporary logs and local experiments → `_working/**` or untracked local files. Durable validation reports → tracked docs.
 
 - **Org / Process**  
-  Repo workflow, AI instructions, planning rules → root docs, `docs/dev/**`, or `CLAUDE.md`.
+  Repo workflow, AI instructions, planning rules, and process notes → root docs, `docs/dev/**`, or this file when the rule is stable.
 
 ## `_working/` Policy
 
@@ -174,7 +131,7 @@ Not allowed:
 - Canon;
 - retained audit reports;
 - raw private datasets intended to remain local;
-- personal GPS tracks if the repository is public or the file may be accidentally committed.
+- secrets or private location data.
 
 Durable outputs belong in tracked docs or GitHub issues/PRs, not in `_working/`.
 
@@ -182,45 +139,32 @@ Durable outputs belong in tracked docs or GitHub issues/PRs, not in `_working/`.
 
 Audit-first is mandatory when any of the following is true:
 
-- The task is a product behavior slice rather than a narrow code edit.
-- The task touches data semantics, source interpretation, or schemas.
-- The task spans multiple files or layers.
-- The task affects driver-facing UX or warning behavior.
-- The task depends on external data quality or licensing assumptions.
-- The task may require more than one PR.
+- the task is a product behavior slice rather than a narrow code edit;
+- the task touches data semantics, source interpretation, or schemas;
+- the task spans multiple files or layers;
+- the task affects driver-facing, safety-sensitive, or alerting UX;
+- the task depends on external data quality or licensing assumptions;
+- the task may require more than one PR.
 
 A meaningful audit/report should cover:
 
 - goal and non-goals;
 - current repo/file inventory;
 - relevant Canon/WIP/Research sources;
-- data/source assumptions;
-- risks and ambiguity;
+- assumptions and risks;
 - recommended technical execution slices;
-- test or visual validation plan;
+- test or validation plan;
 - explicit follow-up checklist.
 
 ## Product-Level Slice vs Technical Execution Slice
 
 **Product-level slice**
 
-A user-facing or spec-facing package of work, such as:
-
-- Datakam regional viewer;
-- personal road-event layer;
-- Android overlay warning mode;
-- comfortable deceleration planner.
+A user-facing or spec-facing package of work. It often hides several technical decisions.
 
 **Technical execution slice**
 
-A small reviewable unit derived from audit/planning, such as:
-
-- parse Datakam format;
-- render points on a map;
-- add bbox filtering;
-- export GeoJSON;
-- define ExternalObservation schema;
-- write validation report for a familiar region.
+A small reviewable unit derived from audit/planning.
 
 Rule:
 
@@ -244,7 +188,7 @@ Unless explicitly stated otherwise:
 
 - One issue = one branch = one PR.
 - Always create the branch from up-to-date `main`.
-- Branch naming convention: `issue/<number>-<short-slug>` when an issue exists; otherwise use `docs/<short-slug>`, `tool/<short-slug>`, or `viewer/<short-slug>`.
+- Branch naming convention: `issue/<number>-<short-slug>` when an issue exists; otherwise use `docs/<short-slug>`, `tool/<short-slug>`, `app/<short-slug>`, or another clear prefix.
 - A PR must contain changes relevant to a single bounded task only.
 - Substantial technical execution slices should open as Draft PRs by default.
 - Never mix unrelated docs, tools, app code, and data changes in the same PR.
@@ -284,8 +228,8 @@ Not allowed without explicit approval:
 Treat these as shared/high-churn docs:
 
 - `CLAUDE.md`;
-- long-lived WIP product docs under `docs/product/wip/**`;
-- Canon docs under `docs/product/areas/**`;
+- long-lived WIP product docs;
+- Canon docs;
 - active roadmap, milestone, or data-model docs.
 
 Before editing shared/high-churn docs:
@@ -346,23 +290,19 @@ When writing or executing Cursor prompts, include:
 8. **Reporting requirement**  
    Ask Cursor to summarize changed files, assumptions, and remaining risks.
 
-## Current First Deliverable
+## Keeping This File Stable
 
-First deliverable remains:
+Do not add temporary project state to this file.
 
-**Datakam regional web viewer**
+Do not add:
 
-It should eventually:
+- current milestone details;
+- active issue plans;
+- feature-specific task lists;
+- temporary architecture experiments;
+- source-specific parsing notes;
+- implementation TODOs.
 
-1. Load a local Datakam/OpenSpeedcam `speedcam` text file.
-2. Parse `IDX,X,Y,TYPE,SPEED,DIRTYPE,DIRECTION`.
-3. Treat `X` as longitude and `Y` as latitude.
-4. Preserve raw fields.
-5. Normalize event type separately from raw `TYPE`.
-6. Filter by bounding box.
-7. Render points on a map.
-8. Show event details in popup.
-9. Show direction arrows for directional events.
-10. Export filtered GeoJSON.
+Put those in the appropriate docs, issue, PR, or planning file instead.
 
-Do not implement Android, backend, accounts, sync, or crowd features as part of this first deliverable.
+Only update this file when the repository’s AI operating policy itself changes.
