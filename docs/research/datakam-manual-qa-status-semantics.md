@@ -64,6 +64,14 @@ The source `DIRECTION` value appears to be opposite of the applicable vehicle tr
 
 The source direction is unclear, inconsistent, or appears wrong.
 
+## Direction-semantics observation note
+
+Based on manual inspection of a small number of examples along the Yaroslavl-Moscow route, the source `DIRECTION` field appears to represent the direction the camera or sign faces, which is often opposite to the applicable vehicle travel direction.
+
+This is **not a proven global rule** — it is a working hypothesis based on a limited sample. Every point should be evaluated individually using the direction-semantics status field. Do not assume this pattern holds globally without further validation.
+
+The per-marker popup in the viewer includes a hint reflecting this observation.
+
 ## Direction-arrow display
 
 The viewer visualizes raw source direction fields only:
@@ -91,9 +99,14 @@ Do not use these statuses to automatically promote external rows to `VerifiedRoa
 
 For the current implementation, manual QA records are local to the browser:
 
-- saved in `localStorage`;
-- exportable as JSON;
+- saved in `localStorage` under key `roadahead.datakamViewer.manualQa.v1`;
+- exportable as JSON via the Export QA JSON button in the sidebar;
+- records persist across page reloads; reopening the same marker after reload shows previously saved selections;
 - not synced;
 - not committed with raw source data.
 
 Raw Datakam files remain local and ignored by git.
+
+## Default view
+
+The viewer defaults to showing only points inside the Moscow-Yaroslavl ellipse on load. The "Show all parsed points" option is available but not the default, to avoid rendering tens of thousands of points globally at startup.

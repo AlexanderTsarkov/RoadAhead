@@ -37,8 +37,11 @@ Output goes to `dist/`. Do not deploy this viewer; it is a local QA tool only.
   - `DIRTYPE=2` draws two opposite arrows;
   - the sidebar toggle can show or hide arrows.
 - Popup controls for manual visual QA status and direction-semantics interpretation status.
-- Manual QA records are saved in browser `localStorage` and can be exported as JSON.
+- Manual QA records are saved in browser `localStorage` under key `roadahead.datakamViewer.manualQa.v1` and can be exported as JSON.
+  - Records persist across page reloads; reopening the same marker shows previously saved selections.
+  - Use **Export QA JSON** to keep or share a copy outside the browser.
 - Moscow-Yaroslavl ellipse filter (default params: centerLon 38.75, centerLat 56.70, major 300 km, minor 80 km, bearing 35°).
+- **Default view is ellipse-filtered** — only points inside the Moscow-Yaroslavl ellipse are shown on load.
 - Toggle between "show all" and "show only points inside ellipse".
 
 ## Manual QA semantics
@@ -62,6 +65,8 @@ Direction-semantics status values:
 - `likely_camera_or_sign_facing_direction` — `DIRECTION` appears to represent the direction the camera/sign faces.
 - `opposite_of_vehicle_direction` — `DIRECTION` appears opposite to vehicle travel direction.
 - `unclear_or_wrong` — source direction is unclear or appears wrong.
+
+Direction-semantics hint shown in each popup: inspected examples suggest `DIRECTION` may be sign/camera facing direction, often opposite vehicle travel. This is a per-point interpretation only — record it per point and do not treat it as global truth.
 
 These statuses are local QA notes. Exported JSON is evidence for future review, not Canon.
 

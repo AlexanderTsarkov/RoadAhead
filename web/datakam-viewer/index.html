@@ -44,6 +44,9 @@
           <p class="hint">
             Popup statuses are local notes on Datakam ExternalObservation candidates, not verified RoadEvents.
           </p>
+          <p class="hint storage-hint">
+            Saved locally in this browser: localStorage key <code>roadahead.datakamViewer.manualQa.v1</code>. Use Export QA JSON to keep/share a copy.
+          </p>
           <div id="qa-summary" class="qa-summary"></div>
           <button id="export-qa-btn" class="secondary-btn" disabled>Export QA JSON</button>
         </section>
@@ -72,11 +75,11 @@
           </div>
           <div class="radio-group">
             <label>
-              <input type="radio" name="region-mode" value="all" checked />
+              <input type="radio" name="region-mode" value="all" />
               Show all parsed points
             </label>
             <label>
-              <input type="radio" name="region-mode" value="ellipse" />
+              <input type="radio" name="region-mode" value="ellipse" checked />
               Show only points inside ellipse
             </label>
           </div>

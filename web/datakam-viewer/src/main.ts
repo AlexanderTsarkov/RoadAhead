@@ -200,6 +200,13 @@ function setQaRecord(
   qaRecordsByKey.set(key, next);
   saveQaRecords();
   renderQaSummary();
+
+  // If the popup for this row is currently open, refresh its content immediately
+  // so the selected values are visible without closing and reopening.
+  const existingMarker = markerByKey.get(key);
+  if (existingMarker && existingMarker.isPopupOpen()) {
+    existingMarker.setPopupContent(buildPopupHtml(row));
+  }
 }
 
 // -- Direction arrows ---------------------------------------------------------
@@ -284,9 +291,10 @@ let allRows: SpeedcamRow[] = [];
 let rowByObservationKey: Map<string, SpeedcamRow> = new Map();
 let qaRecordsByKey: Map<string, QaRecord> = readStoredQaRecords();
 let activeTypeSet: Set<number> = new Set();
-let regionMode: "all" | "ellipse" = "all";
+let regionMode: "all" | "ellipse" = "ellipse";
 let showDirectionArrows = true;
 let markers: L.CircleMarker[] = [];
+let markerByKey: Map<string, L.CircleMarker> = new Map();
 
 // -- Map ----------------------------------------------------------------------
 
@@ -598,6 +606,7 @@ function buildPopupHtml(row: SpeedcamRow): string {
         <span>Direction semantics</span>
         ${buildStatusSelect("direction", key, qa.directionSemanticsStatus, DIRECTION_SEMANTICS_STATUSES, DIRECTION_SEMANTICS_LABELS)}
       </label>
+      <p class="popup-hint">Observed examples suggest DIRECTION may be sign/camera facing direction, often opposite vehicle travel. Record interpretation per point.</p>
     </div>
   `;
 }
@@ -605,6 +614,7 @@ function buildPopupHtml(row: SpeedcamRow): string {
 function renderMarkers(): void {
   markers.forEach((m) => m.remove());
   markers = [];
+  markerByKey = new Map();
   directionLayerGroup.clearLayers();
 
   const ellipseParams = getEllipseParams();
@@ -616,13 +626,20 @@ function renderMarkers(): void {
       if (!inEllipse(row.lon, row.lat, ellipseParams)) continue;
     }
 
+    const key = observationKey(row);
     const marker = L.circleMarker(
       [row.lat, row.lon],
       makeIcon(typeColor(row.type))
     );
-    marker.bindPopup(buildPopupHtml(row), { maxWidth: 360 });
+    // Bind a placeholder popup; content is refreshed on every open so it
+    // always reflects the current qaRecordsByKey state (handles reload scenario).
+    marker.bindPopup("", { maxWidth: 360 });
+    marker.on("popupopen", () => {
+      marker.setPopupContent(buildPopupHtml(row));
+    });
     marker.addTo(map);
     markers.push(marker);
+    markerByKey.set(key, marker);
     renderDirectionArrows(row);
   }
 }
