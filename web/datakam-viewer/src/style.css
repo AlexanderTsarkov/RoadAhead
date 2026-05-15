@@ -18,10 +18,10 @@ html, body, #app {
   overflow: hidden;
 }
 
-/* ── Sidebar ── */
+/* -- Sidebar -- */
 #sidebar {
-  width: 280px;
-  min-width: 220px;
+  width: 320px;
+  min-width: 260px;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -55,7 +55,13 @@ html, body, #app {
   margin-bottom: 10px;
 }
 
-/* ── File picker ── */
+.hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #7f96a8;
+}
+
+/* -- File picker -- */
 .file-label {
   display: inline-block;
   cursor: pointer;
@@ -76,7 +82,7 @@ html, body, #app {
   display: none;
 }
 
-/* ── Parse stats ── */
+/* -- Parse stats -- */
 .stats {
   margin-top: 10px;
   font-size: 12px;
@@ -101,17 +107,11 @@ html, body, #app {
   display: none !important;
 }
 
-/* ── Type filters ── */
+/* -- Type filters -- */
 .type-filters {
   display: flex;
   flex-direction: column;
   gap: 5px;
-}
-
-.type-filters .hint {
-  font-size: 12px;
-  color: #5a6f80;
-  font-style: italic;
 }
 
 .type-filter-row {
@@ -122,7 +122,8 @@ html, body, #app {
   padding: 2px 0;
 }
 
-.type-filter-row input[type="checkbox"] {
+.type-filter-row input[type="checkbox"],
+.check-row input[type="checkbox"] {
   accent-color: #e94560;
   cursor: pointer;
 }
@@ -148,7 +149,80 @@ html, body, #app {
   border-radius: 3px;
 }
 
-/* ── Ellipse panel ── */
+/* -- Direction / QA panels -- */
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #c0d4e4;
+}
+
+.qa-summary {
+  margin: 10px 0;
+  font-size: 12px;
+  color: #a0b8cc;
+}
+
+.qa-summary h3 {
+  margin-top: 9px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #7a8fa6;
+}
+
+.qa-total,
+.qa-count-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  line-height: 1.55;
+}
+
+.qa-count-row span {
+  overflow-wrap: anywhere;
+}
+
+.qa-total strong,
+.qa-count-row strong {
+  color: #e0f0ff;
+  font-weight: 700;
+}
+
+.secondary-btn,
+#apply-btn {
+  display: block;
+  width: 100%;
+  padding: 7px 0;
+  background: #0f3460;
+  border: 1px solid #1a4a8a;
+  border-radius: 5px;
+  color: #c0d8f0;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+  margin-top: 4px;
+}
+
+.secondary-btn:hover:not(:disabled),
+#apply-btn:hover:not(:disabled) {
+  background: #e94560;
+  border-color: #e94560;
+  color: #fff;
+}
+
+.secondary-btn:disabled,
+#apply-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* -- Ellipse panel -- */
 .field-row {
   display: flex;
   align-items: center;
@@ -194,38 +268,13 @@ html, body, #app {
   cursor: pointer;
 }
 
-#apply-btn {
-  display: block;
-  width: 100%;
-  padding: 7px 0;
-  background: #0f3460;
-  border: 1px solid #1a4a8a;
-  border-radius: 5px;
-  color: #c0d8f0;
-  font-size: 13px;
-  cursor: pointer;
-  transition: background 0.15s;
-  margin-top: 4px;
-}
-
-#apply-btn:hover:not(:disabled) {
-  background: #e94560;
-  border-color: #e94560;
-  color: #fff;
-}
-
-#apply-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* ── Map ── */
+/* -- Map -- */
 #map {
   flex: 1;
   height: 100%;
 }
 
-/* ── Leaflet popup overrides ── */
+/* -- Leaflet popup overrides -- */
 .leaflet-popup-content-wrapper {
   background: #16213e;
   color: #c8dced;
@@ -241,7 +290,7 @@ html, body, #app {
 .popup-table {
   border-collapse: collapse;
   width: 100%;
-  min-width: 180px;
+  min-width: 240px;
 }
 
 .popup-table tr:not(:last-child) td {
@@ -263,4 +312,31 @@ html, body, #app {
 .popup-table td:last-child {
   color: #e0f0ff;
   font-weight: 500;
+}
+
+.popup-qa {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #0f3460;
+}
+
+.popup-qa label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #7a8fa6;
+  font-size: 11px;
+}
+
+.qa-select {
+  width: 100%;
+  padding: 5px 6px;
+  background: #0f2030;
+  border: 1px solid #1a4060;
+  border-radius: 4px;
+  color: #e0f0ff;
+  font-size: 12px;
 }
