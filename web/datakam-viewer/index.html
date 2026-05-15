@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Datakam QA Viewer</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <h1>Datakam QA Viewer</h1>
+
+        <section class="panel" id="load-panel">
+          <h2>Load file</h2>
+          <label class="file-label" for="file-input">
+            Choose speedcam.txt
+            <input type="file" id="file-input" accept=".txt,.csv" />
+          </label>
+          <div id="parse-stats" class="stats hidden"></div>
+        </section>
+
+        <section class="panel" id="filter-panel">
+          <h2>Type filter</h2>
+          <div id="type-filters" class="type-filters">
+            <span class="hint">Load a file to see types.</span>
+          </div>
+        </section>
+
+        <section class="panel" id="ellipse-panel">
+          <h2>Region filter (ellipse)</h2>
+          <div class="field-row">
+            <label for="el-centerLon">Center lon</label>
+            <input type="number" id="el-centerLon" step="0.01" value="38.75" />
+          </div>
+          <div class="field-row">
+            <label for="el-centerLat">Center lat</label>
+            <input type="number" id="el-centerLat" step="0.01" value="56.70" />
+          </div>
+          <div class="field-row">
+            <label for="el-majorKm">Major axis km</label>
+            <input type="number" id="el-majorKm" step="10" min="1" value="300" />
+          </div>
+          <div class="field-row">
+            <label for="el-minorKm">Minor axis km</label>
+            <input type="number" id="el-minorKm" step="10" min="1" value="80" />
+          </div>
+          <div class="field-row">
+            <label for="el-bearingDeg">Bearing °</label>
+            <input type="number" id="el-bearingDeg" step="1" value="35" />
+          </div>
+          <div class="radio-group">
+            <label>
+              <input type="radio" name="region-mode" value="all" checked />
+              Show all parsed points
+            </label>
+            <label>
+              <input type="radio" name="region-mode" value="ellipse" />
+              Show only points inside ellipse
+            </label>
+          </div>
+          <button id="apply-btn" disabled>Apply</button>
+        </section>
+      </aside>
+
+      <div id="map"></div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
