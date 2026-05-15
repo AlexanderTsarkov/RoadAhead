@@ -17,25 +17,28 @@ AI may implement small, explicitly scoped changes when requested, but must not a
 1. **Policy is stable; project state lives elsewhere.**  
    Do not encode the current milestone, active feature, or temporary implementation plan in this file.
 
-2. **Small bounded changes.**  
+2. **Current phase context lives in `_working/ITERATION.md`.**  
+   Before meaningful work, read `_working/ITERATION.md` to understand active phase, scope, non-scope, and current iteration identity. If it is missing or stale, stop and ask for it to be created or updated.
+
+3. **Small bounded changes.**  
    Prefer narrow, reviewable tasks over large multi-area changes.
 
-3. **Audit before meaningful implementation.**  
+4. **Audit before meaningful implementation.**  
    If a task changes architecture, data semantics, product behavior, driver-facing UX, or spans multiple areas, audit and plan before coding.
 
-4. **WIP is not Canon.**  
+5. **WIP is not Canon.**  
    Working notes, hypotheses, and scratch files are not implementation truth until explicitly promoted to Canon or captured in a decision record.
 
-5. **External data is not truth.**  
+6. **External data is not truth.**  
    Third-party or public datasets are candidate inputs until verified according to the project’s data policy.
 
-6. **Private/raw data stays local by default.**  
+7. **Private/raw data stays local by default.**  
    Do not commit raw external datasets, secrets, personal logs, or private location data unless explicitly approved.
 
-7. **Safety-sensitive UX requires explicit review.**  
+8. **Safety-sensitive UX requires explicit review.**  
    Any in-drive, driver-facing, alerting, or attention-affecting UX must be treated as safety-sensitive and planned deliberately.
 
-8. **Do not add infrastructure casually.**  
+9. **Do not add infrastructure casually.**  
    Backend, accounts, sync, cloud storage, telemetry, large frameworks, or new service dependencies require explicit rationale and approval.
 
 ## Responsibilities
@@ -77,7 +80,8 @@ Stop and ask for direction, or produce an audit/plan instead of implementing, wh
 - the task touches safety-sensitive user interaction;
 - the task would publish or commit external/private data;
 - the task requires changing Canon or promoting WIP to Canon;
-- the task would require broad refactoring or unrelated cleanup.
+- the task would require broad refactoring or unrelated cleanup;
+- `_working/ITERATION.md` is missing, stale, or inconsistent with the requested meaningful work.
 
 Small obvious fixes may proceed directly when the path is genuinely unambiguous.
 
@@ -87,6 +91,29 @@ Classifier for where work lives is **Work Area**, not issue existence.
 
 - **Work Area** = type of work: Product Specs WIP / Implementation / Docs / Test / Research / Org
 - **Tech Area** = component or domain: project-specific area such as Web, Mobile, Data Import, UX, Backend, Documentation, Dev Workflow, etc.
+
+## Iteration Descriptor
+
+`_working/ITERATION.md` is the active iteration descriptor.
+
+It should contain:
+
+- iteration ID on the first line;
+- Work Area;
+- Tech Area;
+- scope;
+- explicit non-scope;
+- relevant links;
+- high-level order;
+- definition of done;
+- notes and active assumptions.
+
+Rules:
+
+- Treat `_working/ITERATION.md` as phase context, not Canon.
+- Update it when the active iteration changes.
+- Do not place stable product truth there; promote stable decisions to Canon or decision records.
+- For meaningful implementation/test work, ensure the file exists and matches the task before proceeding.
 
 ## Routing Rules
 
@@ -117,6 +144,13 @@ Use these default locations once the folders exist. If the repository uses a mor
 ## `_working/` Policy
 
 `_working/` is an ephemeral sandbox only.
+
+Tracked files allowed by default:
+
+- `_working/README.md`;
+- `_working/ITERATION.md`.
+
+Other files in `_working/` should be treated as disposable local scratch material unless explicitly promoted or approved for commit.
 
 Allowed:
 
@@ -174,13 +208,14 @@ Do not execute a product-level slice directly when it hides architecture, valida
 
 Before making changes:
 
-1. Identify Work Area and Tech Area.
-2. State goal and non-goals.
-3. Check relevant existing files.
-4. Decide whether audit-first is required.
-5. Choose correct file location.
-6. Keep the change small and reviewable.
-7. Confirm no raw/private data will be committed.
+1. Read `_working/ITERATION.md` for current phase context when the task is meaningful or non-trivial.
+2. Identify Work Area and Tech Area.
+3. State goal and non-goals.
+4. Check relevant existing files.
+5. Decide whether audit-first is required.
+6. Choose correct file location.
+7. Keep the change small and reviewable.
+8. Confirm no raw/private data will be committed.
 
 ## PR / Branch Discipline
 
@@ -228,6 +263,7 @@ Not allowed without explicit approval:
 Treat these as shared/high-churn docs:
 
 - `CLAUDE.md`;
+- `_working/ITERATION.md`;
 - long-lived WIP product docs;
 - Canon docs;
 - active roadmap, milestone, or data-model docs.
@@ -303,6 +339,6 @@ Do not add:
 - source-specific parsing notes;
 - implementation TODOs.
 
-Put those in the appropriate docs, issue, PR, or planning file instead.
+Put those in the appropriate docs, issue, PR, `_working/ITERATION.md`, or planning file instead.
 
 Only update this file when the repository’s AI operating policy itself changes.
