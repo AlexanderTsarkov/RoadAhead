@@ -243,6 +243,32 @@ The UI must remain compact enough for overlay use.
 
 The UI must not behave like a full map.
 
+### Visual Primitive Intent
+
+The POC UI should not depend on raster image assets for the main circles or signs. All primary elements should be drawable in code using simple vector/UI primitives: circles, rings, borders, fills, text, small symbols, opacity, scale, and overlap.
+
+There are two related but visually distinct concepts:
+
+**1. Current speed indicator (left circle)**
+
+- Not a literal road sign.
+- White center.
+- Black or neutral outer border in idle / unknown-reference mode.
+- Red informational ring/border appears in active approach mode; becomes more visible and prominent as urgency increases.
+- Number represents current vehicle speed.
+
+**2. Upcoming event sign (middle and right circles)**
+
+- Intentionally imitates a road speed-limit or warning sign.
+- Red circular border/ring.
+- White center.
+- Number represents event target/advisory speed.
+- Optional small event symbol appears under the number — for example: camera icon, road bump symbol, or railway-like danger symbol.
+
+The reference-image idea from the original working draft should be treated as **visual guidance only**, not as a requirement to commit PNG or SVG assets.
+
+Future design work may add proper vector assets or design mockups, but POC V1 can start with programmatically drawn shapes.
+
 ---
 
 ## 6. Event Classes
