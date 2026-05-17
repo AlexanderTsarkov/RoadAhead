@@ -152,7 +152,9 @@ The following questions should be resolved or explicitly carried as open items b
 | Q11 | Testing strategy | Yes | Interactive route-emulator simulation required |
 | Q12 | Layout | No | Horizontal only for POC |
 | Q13 | Pass feedback visual | Can tune | pass\_feedback\_hold |
-| Q14 | Camera-risk feedback | Can tune | pass\_feedback\_hold camera-risk variant Q15 Data preparation Yes prepared local geo-indexed event store; raw text is import-only Q16 Direction applicability Needs technical recommendation conservative route-path applicability; tune via emulator/field tests  |
+| Q14 | Camera-risk feedback | Can tune | `pass_feedback_hold` camera-risk variant |
+| Q15 | Data preparation | Yes | Prepared local geo-indexed event store; raw text is import-only |
+| Q16 | Direction applicability | Needs technical recommendation | Conservative route-path applicability; tune via emulator / field tests |
 
 ---
 
@@ -168,8 +170,7 @@ Options:
 2. Standalone Android prototype.  
 3. Interactive web route emulator.  
 4. Extend current Datakam viewer into an interactive route emulator mode.  
-5. Hybrid: web route emulator first, Android later.  
-6. 
+5. Hybrid: web route emulator first, Android later.
 
 ## **Recommended decision**
 
