@@ -28,6 +28,8 @@ context: RoadAhead POC V1 three-circle anticipatory road-understanding assistant
 
 A WIP index may be introduced later if the POC V1 documentation splits into multiple area-specific files. For now, these two WIP files cross-link to each other directly.
 
+The companion decision workbook ([`roadahead-poc-v1-initial-product-decisions-workbook.md`](roadahead-poc-v1-initial-product-decisions-workbook.md)) is retained as rationale and input history. This file is the current reader-facing POC V1 WIP specification. If the workbook conflicts with this file, this file wins until stable decisions are promoted to Canon or decision records.
+
 ---
 
 ## 1. Purpose

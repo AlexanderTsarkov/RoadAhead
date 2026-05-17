@@ -15,6 +15,28 @@ Purpose: collect accepted working decisions and technical/research questions req
 
 A WIP index may be introduced later if the POC V1 documentation splits into multiple area-specific files. For now, these two files cross-link to each other directly.
 
+## Document role and precedence
+
+This workbook is a decision/input history document.
+
+After PR #19, the current reader-facing POC V1 WIP specification is:
+
+[`roadahead-poc-v1-three-circle-assistant.md`](roadahead-poc-v1-three-circle-assistant.md)
+
+Use the main WIP spec as the current working specification.
+
+Use this workbook only for:
+
+- decision rationale;
+- review / audit trail;
+- unresolved question history;
+- future Canon / decision-record preparation.
+
+If this workbook conflicts with the main WIP spec, the main WIP spec wins.
+
+Do not use this workbook as an implementation source.
+Do not treat this workbook as Canon.
+
 Related existing issue:
 
 \#17 — Planning tracker for RoadAhead POC V1 WIP revision, decisions, and later implementation slices
