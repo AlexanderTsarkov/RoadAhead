@@ -181,11 +181,11 @@ The schema below is a **recommended starting field set**, with nullability rules
 
 | Field | Type | Nullable | Rationale |
 |---|---|---|---|
-| `event_id` | string (UUID or deterministic hash) | no | Stable RoadAhead-internal identifier, independent of source row id. |
+| `event_id` | string (deterministic hash or UUID) | no | Stable RoadAhead-internal identifier, independent of source row id. For source-derived events, **prefer a deterministic ID** based on stable source identity — e.g., a normalized hash of `source + source_dataset_version + source_event_id` / `source_idx` — so that re-imports produce the same `event_id`. Stable identity matters because QA statuses reference `event_id`, `route_candidate_cache` foreign keys reference it, and generated-store diffs become noisy if IDs change on every rebuild. Random UUIDs are acceptable only for purely synthetic fixtures where cross-import identity does not apply. |
 | `source` | string enum (`datakam`, …) | no | Which external source this row came from. Allows future multi-source ingestion without schema change. |
 | `source_event_id` / `source_idx` | string or int | yes | The original `IDX` (Datakam `IDX` per `datakam-speedcam-format-and-route-qa.md`). Carries traceability back to raw source. |
 | `source_dataset_version` | string | yes | Vendor dataset revision / file hash / header timestamp (e.g., `OpenSpeedcam 10-03-2026 11:33`). Required for reproducibility and future refresh logic. |
-| `imported_at` | ISO 8601 timestamp | no | When this row entered the prepared store. |
+| `imported_at` | ISO 8601 timestamp | yes (for fixtures) | When this row entered the prepared store. **Committed fixtures should use a fixed placeholder timestamp** (or omit this field entirely) to keep the fixture file byte-stable across re-generations. For locally generated stores, `imported_at` may record the real import-run clock; deterministic rebuild checks should either exclude this volatile field from equality comparisons or scope it to `event_source_metadata` / import-batch metadata (§8.4) rather than requiring per-row timestamp equality. |
 | `raw_type` | int | no | The unmodified source `TYPE`. Preserves provenance even when normalization changes. |
 | `normalized_type` | string enum (§5.3) | no | RoadAhead-internal class; the field event-selection logic actually reads. |
 | `enabled_for_poc` | bool | no | Quick toggle to scope a candidate in or out of POC V1 behaviour without deleting it (WIP spec §7.1). |
@@ -220,8 +220,9 @@ The mapping from Datakam `TYPE` to `normalized_type` lives in the importer, not 
 | `vehicle_applicable_direction_deg` / `applicable_vehicle_bearings_deg` | int or array of ints | yes | Derived under the working `DIRECTION + 180` assumption (direction applicability recommendation §3.E); one bearing for `DIRTYPE=1`, two opposite bearings for `DIRTYPE=2`. **Derived field, not source truth.** |
 | `direction_interpretation_status` | string enum | yes | Optional manual QA hint (`likely_camera_or_sign_facing_direction`, `unclear_or_wrong`, …) from `datakam-manual-qa-status-semantics.md`. Reserved field; manually populated when available. |
 | `direction_confidence` | float \[0, 1\] | yes | Optional confidence about the direction interpretation. Reserved field. |
+| `direction_interpretation_version` / `normalization_version` | string | yes | Identifies the normalization / direction-interpretation rule used to derive `vehicle_applicable_direction_deg` / `applicable_vehicle_bearings_deg` (e.g., `datakam_v1_direction_plus_180`). May live per-row or once in `event_source_metadata` / importer batch metadata rather than on every row — see note below. |
 
-`vehicle_applicable_direction_deg` is intentionally a **derived** field. It is stored alongside `source_direction_deg` for convenience, but a downstream consumer that wants the raw data can always read `source_direction_deg`. The derivation may be revisited per dataset version (`datakam-manual-qa-status-semantics.md` finding 1, marked non-final).
+`vehicle_applicable_direction_deg` is intentionally a **derived** field. It is stored alongside `source_direction_deg` for convenience, but it is only valid under a specific interpretation rule and must be **recomputable** from `source_direction_deg` + `source_dirtype` + the documented normalization / direction-interpretation version. If the Datakam `DIRECTION` semantics are revised in a future dataset or a future interpretation pass, stored derived bearings must be invalidated and recomputed safely — `source_direction_deg` and `source_dirtype` are the stable inputs; derived bearings are not. The interpretation version (e.g., `datakam_v1_direction_plus_180`) may be stored per-row as `direction_interpretation_version` or once in `event_source_metadata` if all events in a given import batch share the same rule (`datakam-manual-qa-status-semantics.md` finding 1, marked non-final).
 
 ### 5.5 Route-projection fields — see §7
 
@@ -231,7 +232,7 @@ Route-projection fields are **explicitly not part of the base event record**. Th
 
 | Field | Type | Nullable | Rationale |
 |---|---|---|---|
-| `validation_status` | string enum | yes | Reserved field. Possible values include `unknown`, `unconfirmed`, `looks_correct`, `wrong`, `needs_drive`, `confirmed`, `disputed`, `removed_candidate` (mirrors `datakam-manual-qa-status-semantics.md` and WIP spec §14.5). POC V1 reads this only as a soft override (suppression hint), not as ground truth. |
+| `validation_status` | string enum | yes | Reserved field. **Active POC V1 manual-QA values** (mirrors `datakam-manual-qa-status-semantics.md`): `unknown`, `looks_correct`, `wrong`, `needs_drive`. A `looks_correct` status reflects manual visual plausibility only — it does **not** imply VerifiedRoadEvent truth (WIP spec §16; `datakam-manual-visual-validation.md`). States `confirmed`, `disputed`, `removed_candidate` are **reserved future lifecycle states** that must not imply product-verified road-event truth in POC V1; they are schema placeholders for a later community / field validation workflow (WIP spec §14.5, §20.6). POC V1 reads the active statuses only as a soft override (suppression hint), not as ground truth. |
 | `confirmations_count` | int | yes | Reserved for future community validation (WIP spec §14.5, §20.6). Not populated in POC V1. |
 | `rejections_count` | int | yes | Reserved for future community validation. Not populated in POC V1. |
 | `last_confirmed_at` | ISO 8601 timestamp | yes | Reserved. Not populated in POC V1. |
