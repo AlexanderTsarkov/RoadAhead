@@ -125,7 +125,7 @@ The columns are:
 
 | Field | Starting default | Suggested tuning range | Applies to | Rationale | Status |
 |---|---|---|---|---|---|
-| `pass_feedback_hold_s` | 2.0 s | 1.5–3.0 s | post-pass Tier 1 / Tier 2 / camera-risk visual hold (WIP spec §12.4, §12.5, §13.2, §13.4) | Long enough to register a passed-event feedback at a glance, short enough not to block the next event from becoming primary. Starting toward the lower end of WIP spec §12.5's 3–5 s range because the dynamic action-horizon (WIP spec §9) can re-prioritise quickly and a long hold can hide an upcoming urgent event; the sweep should explore the WIP spec's longer values explicitly. | recommended_starting_default; emulator_tuning; not_canon; must_be_validated |
+| `pass_feedback_hold_s` | 2.0 s | 1.5–3.0 s | post-pass Tier 1 / Tier 2 / camera-risk visual hold (WIP spec §12.4, §12.5, §13.2, §13.4) | Long enough to register a passed-event feedback at a glance, short enough not to block the next event from becoming primary. Starting below the WIP spec §12.5 3–5 s working range because the dynamic action-horizon can re-prioritise quickly and a long hold can hide an upcoming urgent event; the sweep should explicitly compare 2 s, 3 s, and 4–5 s values. | recommended_starting_default; emulator_tuning; not_canon; must_be_validated |
 | `display_hysteresis_kmh` | 2 km/h | 1–3 km/h | current-speed circle visual state around `target_speed_kmh` (WIP spec §11.1, §11.5) | A symmetric ±2 km/h band is large enough to absorb small fluctuations from manual emulator speed control without flapping the urgency ring, and small enough not to silently teach the driver that 2 km/h above target is normal. | recommended_starting_default; emulator_tuning; not_canon; must_be_validated |
 | `clear_hysteresis_kmh` | 3 km/h | 2–5 km/h | clearing an over-target or active-band visual state after passing or slowing (§7) | Slightly larger than `display_hysteresis_kmh` so that re-entering an active state does not happen immediately after clearing. Range allows the sweep to test asymmetric clear behaviour. | recommended_starting_default; emulator_tuning; not_canon; must_be_validated |
 | `alpha_smoothing_ms` | 300 ms | 150–500 ms (test 250–400 ms first) | current-speed indicator's displayed number / visible state transitions (§7) | 300 ms is short enough that the displayed number tracks manual speed control nearly in real time, long enough to avoid the indicator jittering on rapid control inputs. The 150–500 ms range covers both crisp-response and softer-response settings. | recommended_starting_default; emulator_tuning; not_canon; must_be_validated |
@@ -221,16 +221,16 @@ The mapping below uses the deceleration profile values from §4.3 as boundaries.
 
 | Band | Condition |
 |---|---|
-| `awareness` | event relevant inside the per-type lookahead window (§9), but `required_decel_mps2` is not yet above `decel_smooth_mps2`. The driver still has comfortable room. |
-| `smooth_required` | `required_decel_mps2 <= decel_smooth_mps2` (i.e., a `smooth` deceleration started now would reach target). |
+| `awareness` | event relevant inside the per-type lookahead window (§9), but no deceleration is required yet: `required_decel_mps2 == 0` (or effectively zero within a tiny numerical epsilon). The driver still has comfortable room. |
+| `smooth_required` | `0 < required_decel_mps2 <= decel_smooth_mps2` (i.e., some deceleration is required, but a `smooth` deceleration started now would be enough to reach target). |
 | `normal_required` | `decel_smooth_mps2 < required_decel_mps2 <= decel_normal_mps2`. |
 | `strong_required` | `decel_normal_mps2 < required_decel_mps2 <= decel_strong_mps2`. |
 | `emergency_required` | `decel_strong_mps2 < required_decel_mps2 <= decel_emergency_mps2`. |
 | `unsafe_likely` | reaching `enforcement_threshold_speed` safely is no longer realistic — see §5.4. |
 
-The boundaries above are **half-open** with `<=` on the upper side so that exactly hitting a profile value places the band at the named level (`smooth_required` exactly at `decel_smooth_mps2`, etc.). The exact comparison (`<` vs `<=`) is a tuning question; the sweep should validate that band transitions happen at the expected speeds.
+The bands are **mutually exclusive** by construction: `awareness` fires only when `required_decel_mps2` is zero (or within a numerical epsilon of zero); `smooth_required` begins as soon as any positive deceleration is required (above that epsilon). The upper boundaries use `<=` so that exactly hitting a profile value places the band at the named level (`smooth_required` exactly at `decel_smooth_mps2`, etc.). The exact epsilon and the exact `<` vs `<=` comparisons are tuning questions; the sweep should validate that band transitions happen at the expected speeds.
 
-The `awareness` band is intentionally distance/lookahead-gated rather than deceleration-gated: it is the visible state when the event has entered the dynamic action-horizon (WIP spec §9) and per-type lookahead window (§9 here) but no deceleration is required yet. The intent is to use it for early, calm preview of an upcoming event.
+The `awareness` band is intentionally distance/lookahead-gated and zero-deceleration-gated: it is the visible state when the event has entered the per-type lookahead window (§9) but no deceleration is required yet. The intent is to use it for early, calm preview of an upcoming event. A future UX nuance — showing a brief "soft preview" before any deceleration is needed but while the event is still distant — would live inside `awareness`; it does not need a separate band in the current mapping.
 
 ### 5.4 `unsafe_likely`
 
@@ -346,7 +346,7 @@ This is a **recommendation**, not an implementation rule. The sweep should valid
 
 ### 8.3 Camera-risk variant timing
 
-The camera-risk visual variant (WIP spec §13; enforcement profile recommendation §3.3, §6.2) uses the same `pass_feedback_hold_s` value as the non-camera Tier 2 visual (WIP spec §13.4 working default `~4 s` aligns with §8.1 here). The optional camera-icon pulse (WIP spec §13.3) sits inside the stable hold; its cadence is owned by WIP spec §13.3 and is not redefined here.
+The camera-risk visual variant (WIP spec §13; enforcement profile recommendation §3.3, §6.2) should use the same configured `pass_feedback_hold_s` value as the non-camera Tier 2 visual. WIP spec §13.4's `~4 s` working default should be included in the scenario sweep (§10) alongside the recommended 2.0 s starting value, so the trade-off between camera-risk feedback visibility and next-event responsiveness is evidence-driven. The optional camera-icon pulse (WIP spec §13.3) sits inside the stable hold; its cadence is owned by WIP spec §13.3 and is not redefined here.
 
 ### 8.4 What this section does not do
 
