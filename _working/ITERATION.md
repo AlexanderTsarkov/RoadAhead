@@ -1,15 +1,13 @@
-RA-0003__POC_V1_Technical_Recommendations.v1
+RA-0003__POC_V1_Technical_Recommendations.v2_traceability
 
 Work Area: Research / technical recommendations / documentation synthesis
 Tech Area: RoadAhead POC V1, interactive web route emulator, direction applicability, route geometry provider feasibility, prepared event store, enforcement profile, threshold tuning strategy
 
 Scope:
-- Prepare technical/research recommendation documents for the open WIP questions called out in the POC V1 WIP spec and in Issue #20.
-- Use the current reader-facing POC V1 WIP spec as source of truth; the companion decision workbook is rationale/input only.
-- This iteration begins with the direction applicability / route-path applicability recommendation document.
-- Other recommendation areas from Issue #20 (route geometry provider, prepared event store, enforcement profile, threshold tuning) remain in-scope for this overall iteration but are handled as separate small branches/PRs.
-- Keep all output as Research, not Canon.
-- Preserve unresolved technical/research questions as open items, with proposed starting defaults and validation needs for the web emulator.
+- All five Issue #20 Research recommendation documents are complete and merged.
+- This follow-up step links the five merged recommendation docs from the main POC V1 WIP spec by reference (traceability / incorporation PR).
+- Keep all output as WIP / Research, not Canon.
+- Preserve unresolved technical/research questions as open items; recommendations are inputs, not Canon resolutions.
 
 Explicit non-scope:
 - No code implementation.
@@ -52,23 +50,27 @@ Related issue:
 Order (this iteration):
 1. Read CLAUDE.md.
 2. Read this iteration descriptor.
-3. Read the main WIP spec and the relevant research notes.
-4. Write technical/research recommendation document(s) under docs/research/.
-5. Start with the direction applicability / route-path applicability recommendation in a separate small PR.
-6. Open follow-up small branches/PRs for the remaining Issue #20 topics as they are tackled.
-7. Do not create Canon, decision records, implementation slices, implementation issues, or code changes in this iteration.
+3. Read the main WIP spec and all five Issue #20 recommendation docs.
+4. Create branch issue/20-wip-traceability-links from fresh main.
+5. Add traceability links from the main WIP spec to the five recommendation docs.
+6. Open a small documentation-only PR linked to Issue #20. Do not merge.
+7. Do not create Canon, decision records, implementation slices, implementation issues, or code changes.
 
-Definition of Done (per recommendation slice):
-- One self-contained recommendation document under docs/research/, clearly marked Research / not Canon.
-- Document distinguishes proposed starting defaults, rationale/tradeoffs, risks/unknowns, emulator validation needs, future strategy, and Canon-candidate vs WIP-tuning items.
-- Cross-links to the main WIP spec, workbook, and relevant research notes.
-- No raw data is committed.
-- No code is changed.
-- No Canon docs or decision records are created.
-- No implementation issues are created.
-- One issue = one branch = one PR; PR linked to #20; PR not merged by the assistant.
+Definition of Done (this traceability slice):
+- docs/product/wip/roadahead-poc-v1-three-circle-assistant.md updated with:
+  - new "Technical recommendation inputs from Issue #20" subsection in Related WIP docs area;
+  - compact recommendation input notes in §4, §8.3, §9, §11.6, §14.6;
+  - updated §20.1–§20.5 noting recommendations are available (still WIP, not Canon);
+  - new §20.8 "Future review path" note;
+  - updated §24 (Related research) listing the five recommendation docs.
+- _working/ITERATION.md updated to reflect the traceability follow-up step.
+- No raw data committed.
+- No code changed.
+- No Canon docs or decision records created.
+- No implementation issues created.
+- PR opened, linked to #20, not merged by the assistant.
 
 Notes:
 - This file is phase context, not Canon.
 - Durable product truth belongs in product WIP, Canon docs, decision records, issues, or PRs as appropriate.
-- Update this file again when the recommendation work concludes and the project moves to Canon promotion or implementation slicing.
+- Update this file again when the project moves to Canon promotion or implementation slicing.

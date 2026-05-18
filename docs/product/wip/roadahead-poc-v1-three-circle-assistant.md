@@ -30,6 +30,31 @@ A WIP index may be introduced later if the POC V1 documentation splits into mult
 
 The companion decision workbook ([`roadahead-poc-v1-initial-product-decisions-workbook.md`](roadahead-poc-v1-initial-product-decisions-workbook.md)) is retained as rationale and input history. This file is the current reader-facing POC V1 WIP specification. If the workbook conflicts with this file, this file wins until stable decisions are promoted to Canon or decision records.
 
+### Technical recommendation inputs from Issue #20
+
+Issue #20 produced five Research / technical recommendation documents for the open WIP questions called out in this spec (§20.1–§20.5).
+
+These documents are:
+
+- **Not Canon.** They are Research / technical recommendations.
+- **Not implementation plans.** They do not create implementation scope.
+- **Inputs for:**
+  - future WIP spec refinement;
+  - future Canon / ADR review;
+  - future emulator implementation planning.
+
+If this WIP spec and a recommendation doc conflict, the conflict should be called out during the next WIP / Canon review rather than silently resolved.
+
+Issue #20 recommendation docs:
+
+- [`../../research/roadahead-direction-applicability-recommendation.md`](../../research/roadahead-direction-applicability-recommendation.md) — route-path applicability model for event selection in route-known mode; expands §8.3 and §20.1.
+- [`../../research/roadahead-route-geometry-provider-recommendation.md`](../../research/roadahead-route-geometry-provider-recommendation.md) — route geometry provider strategy for the interactive web emulator; expands §3, §4, and §20.2.
+- [`../../research/roadahead-prepared-event-store-recommendation.md`](../../research/roadahead-prepared-event-store-recommendation.md) — data path and prepared event store strategy; expands §14 and §20.3.
+- [`../../research/roadahead-enforcement-profile-recommendation.md`](../../research/roadahead-enforcement-profile-recommendation.md) — enforcement profile and emulator config model; expands §10–§13 and §20.4.
+- [`../../research/roadahead-threshold-tuning-recommendation.md`](../../research/roadahead-threshold-tuning-recommendation.md) — threshold tuning starting defaults and validation strategy; expands §9, §11.5, §12.5, §13.4, and §20.5.
+
+**Issue #20 research docs are recommendation inputs created after the workbook.** They should be considered during WIP refinement and Canon review. They do not automatically override this WIP spec until incorporated or promoted.
+
 ---
 
 ## 1. Purpose
@@ -119,6 +144,8 @@ Route geometry provider candidates (working assumption — see §20.2 for the op
 - imported GPX / KML / GeoJSON track;
 - recorded GPS track;
 - manually defined polyline fallback for debug.
+
+> **Recommendation input (§20.2):** [`../../research/roadahead-route-geometry-provider-recommendation.md`](../../research/roadahead-route-geometry-provider-recommendation.md) — Yandex remains conditional primary candidate; GPX / KML / GeoJSON import is required as a fallback for deterministic emulator validation, not an afterthought; provider supplies geometry only, not speed / ETA / legal truth. All provider and adapter details are WIP, not Canon.
 
 ---
 
@@ -332,6 +359,8 @@ POC V1 scope on this topic:
 - the web emulator should expose debug fields for direction applicability decisions (see §11 and §20.1);
 - exact thresholds and ambiguity heuristics are open technical/research items (see §20.1).
 
+> **Recommendation input (§20.1):** [`../../research/roadahead-direction-applicability-recommendation.md`](../../research/roadahead-direction-applicability-recommendation.md) — route-known mode should use route projection + local route approach tangent for direction compatibility; conservative suppression is the default for wrong-road / wrong-direction / branch ambiguity in driver-facing UX; all thresholds are WIP emulator tuning defaults, not Canon.
+
 ---
 
 ## 9. Dynamic preview / action thresholds
@@ -389,6 +418,8 @@ Initial reaction defaults:
 - optional UI margin ≈ 1.0 s.
 
 These values are **starting points for emulator tuning**, not Canon. See §20.5.
+
+> **Recommendation input (§20.5):** [`../../research/roadahead-threshold-tuning-recommendation.md`](../../research/roadahead-threshold-tuning-recommendation.md) — all numeric values are emulator tuning defaults, not Canon; a scenario sweep is required before any promotion; normal guidance remains target-speed based; raw speed, smoothed speed, hysteresis, and pass-speed sampling are separate concerns. Some recommended starting defaults in that document intentionally differ from the working defaults above; both sets are explorable in the sweep.
 
 UI states for the dynamic action horizon:
 
@@ -543,6 +574,8 @@ The emulator should expose, at minimum:
 - braking profile thresholds;
 - reaction time;
 - UI margin.
+
+> **Recommendation input (§20.4):** [`../../research/roadahead-enforcement-profile-recommendation.md`](../../research/roadahead-enforcement-profile-recommendation.md) — `target_speed_kmh`, `enforcement_tolerance`, and `display_hysteresis_kmh` are separate concepts with separate sources; Russia +20 km/h is a POC working profile, not legal truth; enforcement profile is session/config state, not event data; normal guidance bands compute against `target_speed_kmh` only.
 
 ---
 
@@ -738,6 +771,8 @@ POC V1 does **not** implement community validation, accounts, moderation, or pro
 - small synthetic or manually curated fixtures may be committed for tests;
 - raw text input is treated as source material only, not committed product data.
 
+> **Recommendation input (§20.3):** [`../../research/roadahead-prepared-event-store-recommendation.md`](../../research/roadahead-prepared-event-store-recommendation.md) — raw source data is import-only and uncommitted; the first emulator may start with a small synthetic / safely curated JSON or GeoJSON fixture; the normalized event schema should be designed as a migration-compatible subset of a future SQLite + spatial index store; base event data and route-derived data stay separate.
+
 ---
 
 ## 15. Visual design principles
@@ -864,58 +899,75 @@ These items are **not** silently answered as product decisions. They are explici
 
 ### 20.1 Direction applicability tuning (open technical)
 
-The product requirement is conservative route-path applicability (§8.3). Specific thresholds are open:
+Research recommendation available: [`../../research/roadahead-direction-applicability-recommendation.md`](../../research/roadahead-direction-applicability-recommendation.md). Still WIP; not Canon. Use as input for future Canon / ADR and implementation planning.
+
+The product requirement is conservative route-path applicability (§8.3). Specific thresholds remain open and require emulator validation:
 
 - initial `direction_delta_deg` threshold;
 - route-approach window length near the event;
 - branch-ambiguity detection at T-junctions / forks / intersections in the first emulator;
 - behavior when Datakam `DIRECTION` conflicts with route geometry but visual QA suggests the candidate point is correct.
 
-Working approach: use route/path projection; compare sign/camera direction to the local route approach tangent near the event; suppress events beyond unresolved branches; expose debug fields in the emulator; tune in the web emulator first, then in real-device movement tests later.
+Working approach: use route/path projection; compare sign/camera direction to the local route approach tangent near the event; suppress events beyond unresolved branches; expose debug fields in the emulator; tune in the web emulator first, then in real-device movement tests later. All thresholds proposed in the recommendation remain WIP tuning defaults pending emulator validation. Validation needs and risks identified in the recommendation doc are not resolved by its existence.
 
 ### 20.2 Route geometry provider (open technical)
 
-Working assumption: Yandex first, if its route polyline is the simplest technically feasible option for a Russia-focused emulator. Open items:
+Research recommendation available: [`../../research/roadahead-route-geometry-provider-recommendation.md`](../../research/roadahead-route-geometry-provider-recommendation.md). Still WIP; not Canon. Use as input for future Canon / ADR and implementation planning.
+
+Working assumption: Yandex first, if its route polyline is the simplest technically feasible option for a Russia-focused emulator. Open items that require verification at integration time and are not resolved by the recommendation:
 
 - whether Yandex can provide the needed route polyline/geometry cleanly;
 - API/key/pricing/terms constraints relevant to a local POC;
 - whether integration complexity is lower than OSRM/GraphHopper for the first Russia-focused emulator.
 
-Working fallback expectation:
+Working fallback expectation (confirmed by the recommendation as required, not optional):
 
-- GPX / KML / GeoJSON imported route as an important fallback for the first emulator;
+- GPX / KML / GeoJSON imported route as a required fallback for the first emulator;
 - manually defined polyline as a debug fallback;
 - OSRM / GraphHopper deferred until after the basic emulator works, unless Yandex proves impractical.
 
 ### 20.3 Prepared event store engine (open technical)
 
-Product requirement: prepared, normalized data — not raw `speedcam.txt` at runtime. Storage engine is open:
+Research recommendation available: [`../../research/roadahead-prepared-event-store-recommendation.md`](../../research/roadahead-prepared-event-store-recommendation.md). Still WIP; not Canon. Use as input for future Canon / ADR and implementation planning.
 
-- start with **SQLite + spatial index** as the intended product/Android-friendly direction; or
-- start with a **normalized JSON / GeoJSON fixture**, with an explicit migration path to SQLite/GeoPackage.
+Product requirement: prepared, normalized data — not raw `speedcam.txt` at runtime. Storage engine remains open; the recommendation provides a starting path:
 
-Either way:
+- start with **normalized JSON / GeoJSON fixture** for the first emulator behaviour validation, designed as a migration-compatible subset of the intended future SQLite store; or
+- start directly with **SQLite + spatial index** as the intended product/Android-friendly direction.
+
+Either way (confirmed by the recommendation):
 
 - raw `speedcam.txt` stays import-only and uncommitted;
-- any committed fixture must be small, synthetic or manually curated, and safe to keep in the repo.
+- any committed fixture must be small, synthetic or manually curated, and safe to keep in the repo;
+- base event data and route-derived data must remain separate;
+- exact storage engine, schema, and spatial index strategy require a future implementation planning decision.
 
 ### 20.4 Enforcement profile defaults (open product/technical)
 
-Working defaults:
+Research recommendation available: [`../../research/roadahead-enforcement-profile-recommendation.md`](../../research/roadahead-enforcement-profile-recommendation.md). Still WIP; not Canon. Use as input for future Canon / ADR and implementation planning.
 
-- POC default for the first Russia-focused emulator: Russia +20 km/h;
+Working defaults (reconciliation with the recommendation pending emulator validation):
+
+- POC default for the first Russia-focused emulator: Russia +20 km/h (a working profile, not legal truth; requires re-verification against current official/legal/public sources before any product/legal use);
 - generic future default may be percentage-based (e.g., +5%);
 - known jurisdiction overrides should be supported (e.g., Russia +20, Belarus +10);
 - user custom exceptions may be supported in the future.
 
-POC requirement:
+POC requirement (confirmed by the recommendation):
 
-- the emulator should expose `enforcement_tolerance_profile` as a visible config field;
-- profile switching in the emulator is a "nice to have" if cheap.
+- the emulator should expose `enforcement_tolerance_profile` as a visible config field, not a hidden constant;
+- `target_speed_kmh`, `enforcement_tolerance`, and `display_hysteresis_kmh` must remain separate and separately inspectable in debug;
+- profile switching in the emulator is a "nice to have" if cheap; static config at start is sufficient for the first slice.
+
+The enforcement profile is session/config state, not base event data. No legal correctness is implied or claimed.
 
 ### 20.5 Threshold tuning ranges (open tuning)
 
-Starting points only — final values come from emulator experiments:
+Research recommendation available: [`../../research/roadahead-threshold-tuning-recommendation.md`](../../research/roadahead-threshold-tuning-recommendation.md). Still WIP; not Canon. Use as input for future Canon / ADR and implementation planning.
+
+Starting points only — final values come from emulator experiments. The recommendation proposes revised starting defaults and tuning ranges that intentionally differ in places from the values below; both sets should be explored in a scenario sweep before any value is promoted.
+
+Working defaults from this WIP spec (see recommendation for alternative starting defaults and sweep ranges):
 
 - `pass_feedback_hold_s` ≈ 4 s (acceptable range 3–5 s);
 - `display_hysteresis_kmh` ≈ 1–2 km/h;
@@ -924,6 +976,8 @@ Starting points only — final values come from emulator experiments:
 - deceleration profile values from §9 (smooth 1.0, normal 1.5, strong 2.5, emergency 3.4 m/s²);
 - reaction-time defaults from §9 (ordinary 2.0 s, high-speed 2.5 s, optional UI margin 1.0 s);
 - per-type lookahead caps and minimum display distances as guardrails for §9.
+
+All values remain WIP tuning defaults. A scenario sweep is required before any promotion. Normal guidance must remain target-speed based; raw speed, smoothed speed, hysteresis, and pass-speed sampling must remain separate and separately visible in debug.
 
 ### 20.6 Validation lifecycle (out of POC V1 scope, open future)
 
@@ -941,6 +995,15 @@ Earlier brainstorm ideas (e.g., "≥ 5 confirmations and last confirmation not o
 ### 20.7 `TYPE=106` corridor mode (open product)
 
 `TYPE=106` is excluded by default (§7.4). A later experiment may include `TYPE=106` only as a "railway-like danger candidate" in known/familiar regions / corridor mode. The exact policy and corridor definition are open.
+
+### 20.8 Future review path for Issue #20 recommendations
+
+The five Issue #20 recommendation docs (§20.1–§20.5 above) are research inputs, not Canon and not implementation plans. The following review steps are needed before any item in them is promoted or acted on:
+
+- **Future Canon / ADR review** should evaluate the stable principles identified in the five recommendation docs (e.g., route/path applicability, provider-geometry-only boundary, raw-data-import-only policy, enforcement profile separation, target-speed-based guidance) as candidates for Canon or decision records.
+- **Future WIP update** may reconcile numeric defaults and phrasing after emulator validation — specifically after a scenario sweep has been run for §20.5 threshold tuning and emulator validation has been run for §20.1 direction applicability and §20.2 provider choice.
+- **Future implementation planning** should consume the recommendation docs as input, but must still produce explicit implementation slices. The recommendation docs are not implementation plans.
+- **Conflicts between this WIP spec and a recommendation doc** should be called out and resolved explicitly during WIP refinement or Canon review — not silently resolved in either direction.
 
 ---
 
@@ -1001,11 +1064,21 @@ This PR does not perform any of the above. It only updates the WIP spec.
 
 Supporting research and context for this WIP spec:
 
-- [`docs/research/datakam-speedcam-format-and-route-qa.md`](../../research/datakam-speedcam-format-and-route-qa.md) — Datakam speedcam format notes and route QA.
-- [`docs/research/datakam-manual-visual-validation.md`](../../research/datakam-manual-visual-validation.md) — manual visual validation of Datakam candidate points.
-- [`docs/research/datakam-manual-qa-status-semantics.md`](../../research/datakam-manual-qa-status-semantics.md) — QA status semantics for the manual validation workflow.
-- [`docs/research/datakam-road-bump-direction-semantics.md`](../../research/datakam-road-bump-direction-semantics.md) — direction semantics audit for `road_bump` entries.
-- [`docs/research/driver-helper-gibdd-camera-map-source-review.md`](../../research/driver-helper-gibdd-camera-map-source-review.md) — Driver Helper / GIBDD camera map source review.
-- [`docs/research/osm-road-metadata-source-review.md`](../../research/osm-road-metadata-source-review.md) — OSM road metadata source review.
-- [`web/datakam-viewer/`](../../../web/datakam-viewer/) — local Datakam QA viewer tool.
+**Issue #20 technical recommendation docs (see §20.1–§20.5 and §20.8):**
+
+- [`../../research/roadahead-direction-applicability-recommendation.md`](../../research/roadahead-direction-applicability-recommendation.md) — direction applicability / route-path applicability recommendation; expands §8.3 and §20.1.
+- [`../../research/roadahead-route-geometry-provider-recommendation.md`](../../research/roadahead-route-geometry-provider-recommendation.md) — route geometry provider recommendation; expands §3, §4, and §20.2.
+- [`../../research/roadahead-prepared-event-store-recommendation.md`](../../research/roadahead-prepared-event-store-recommendation.md) — prepared event store / data path recommendation; expands §14 and §20.3.
+- [`../../research/roadahead-enforcement-profile-recommendation.md`](../../research/roadahead-enforcement-profile-recommendation.md) — enforcement profile / emulator config recommendation; expands §10–§13 and §20.4.
+- [`../../research/roadahead-threshold-tuning-recommendation.md`](../../research/roadahead-threshold-tuning-recommendation.md) — threshold tuning recommendation; expands §9, §11.5, §12.5, §13.4, and §20.5.
+
+**Source-level research:**
+
+- [`../../research/datakam-speedcam-format-and-route-qa.md`](../../research/datakam-speedcam-format-and-route-qa.md) — Datakam speedcam format notes and route QA.
+- [`../../research/datakam-manual-visual-validation.md`](../../research/datakam-manual-visual-validation.md) — manual visual validation of Datakam candidate points.
+- [`../../research/datakam-manual-qa-status-semantics.md`](../../research/datakam-manual-qa-status-semantics.md) — QA status semantics for the manual validation workflow.
+- [`../../research/datakam-road-bump-direction-semantics.md`](../../research/datakam-road-bump-direction-semantics.md) — direction semantics audit for `road_bump` entries.
+- [`../../research/driver-helper-gibdd-camera-map-source-review.md`](../../research/driver-helper-gibdd-camera-map-source-review.md) — Driver Helper / GIBDD camera map source review.
+- [`../../research/osm-road-metadata-source-review.md`](../../research/osm-road-metadata-source-review.md) — OSM road metadata source review.
+- [`../../../web/datakam-viewer/`](../../../web/datakam-viewer/) — local Datakam QA viewer tool.
 - Companion decision/input workbook: [`roadahead-poc-v1-initial-product-decisions-workbook.md`](roadahead-poc-v1-initial-product-decisions-workbook.md).
