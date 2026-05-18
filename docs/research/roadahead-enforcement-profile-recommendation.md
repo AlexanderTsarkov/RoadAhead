@@ -131,7 +131,7 @@ The resolution function is the only place a profile's mode is interpreted. In PO
 ```
 resolve_profile(profile, event) -> resolved_enforcement_tolerance_kmh:
     if event.normalized_type not in (profile.applies_to_event_types or all_in_scope):
-        return undefined  // event is out of profile scope; emulator decides behavior
+        return undefined  // event is outside profile scope; see note below
     if profile.tolerance_mode == "absolute_kmh":
         return profile.absolute_kmh
     if profile.tolerance_mode == "percent":
@@ -141,6 +141,8 @@ resolve_profile(profile, event) -> resolved_enforcement_tolerance_kmh:
         // reserved; not implemented in POC V1
         raise NotImplementedInPocV1
 ```
+
+When an event is outside the active profile's `applies_to_event_types`, the enforcement model returns no threshold for that event. The emulator must not compute `unsafe_likely`, Tier 1 / Tier 2 enforcement classification, or camera-risk from that profile for the event. The event may still use `target_speed_kmh` for target-based normal guidance / advisory feedback where its event type supports it.
 
 POC V1 must **explicitly fail** if a non-`absolute_kmh` mode is selected, rather than silently fall back to a default. Silent fallback would defeat the schema's purpose of making the active configuration inspectable.
 
@@ -184,7 +186,7 @@ This profile is the working default for the first emulator slice. It is not lega
 | `applies_to_event_types` | (null = all in-scope) |
 | `status` | `debug` |
 | `legal_claim` | `false` |
-| `source` / `rationale` | Validates pass tier transitions exactly at `target_speed_kmh`. With this profile, `enforcement_threshold_speed == target_speed_kmh`, so Tier 1 collapses to a single km/h band and Tier 2 begins immediately above target. Useful for emulator regression tests where the exact threshold transition needs to be unambiguous. |
+| `source` / `rationale` | Validates pass tier transitions exactly at `target_speed_kmh`. With this profile, `enforcement_threshold_speed == target_speed_kmh`, so Tier 1 is effectively empty under the strict inequalities used in §7.1, and Tier 2 begins immediately above target. This makes it useful for regression tests that verify the boundary behavior exactly. |
 
 `zero_tolerance_debug` is intentionally simple. It is the cleanest way to verify that **everywhere the threshold is consulted, it actually equals `target_speed_kmh + 0` and not some hidden offset**. If a regression silently smuggled a +5 km/h or +20 km/h offset into the model, this profile would catch it.
 
