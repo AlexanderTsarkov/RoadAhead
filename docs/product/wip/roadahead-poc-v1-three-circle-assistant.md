@@ -1,56 +1,128 @@
 ---
 status: Product Specs WIP
 canon: false
-source: Google Doc working draft
-purpose: Baseline POC V1 concept for review
-context: Datakam QA viewer / RoadAhead overlay assistant
+source: Baseline WIP spec + Initial Product Decisions Workbook
+purpose: Updated POC V1 product WIP spec for review
+context: RoadAhead POC V1 three-circle anticipatory road-understanding assistant
 ---
 
-# RoadAhead POC V1 — Three-Circle Anticipatory Speed Assistant
+# RoadAhead POC V1 — Three-Circle Anticipatory Road-Understanding Assistant
 
-> **WIP — Not Canon.**
-> This document is a working draft. It captures a baseline POC V1 concept for discussion and review.
-> Product decisions here are not final and have not been promoted to Canon.
+> **Status — WIP, not Canon.**
+> This document is a working draft. It revises the baseline POC V1 WIP spec by integrating accepted working decisions from the companion decision workbook.
+> Nothing here is implementation truth, legal correctness, or a verified road-event database. Open technical/research questions are explicitly preserved.
+
+## Status
+
+- WIP — Product Specs (not Canon).
+- Not an implementation plan.
+- Not a decision record.
+- Source documents:
+  - the baseline POC V1 WIP spec (this file's prior version), and
+  - the companion decision workbook ([`roadahead-poc-v1-initial-product-decisions-workbook.md`](roadahead-poc-v1-initial-product-decisions-workbook.md)).
+
+## Related WIP docs
+
+- This file (main reader-facing POC V1 product WIP): `roadahead-poc-v1-three-circle-assistant.md`.
+- Companion decision/input workbook: [`roadahead-poc-v1-initial-product-decisions-workbook.md`](roadahead-poc-v1-initial-product-decisions-workbook.md).
+
+A WIP index may be introduced later if the POC V1 documentation splits into multiple area-specific files. For now, these two WIP files cross-link to each other directly.
+
+The companion decision workbook ([`roadahead-poc-v1-initial-product-decisions-workbook.md`](roadahead-poc-v1-initial-product-decisions-workbook.md)) is retained as rationale and input history. This file is the current reader-facing POC V1 WIP specification. If the workbook conflicts with this file, this file wins until stable decisions are promoted to Canon or decision records.
 
 ---
 
 ## 1. Purpose
 
-RoadAhead POC V1 is a compact anticipatory driving assistant based primarily on Datakam/OpenSpeedcam candidate data.
+RoadAhead is an anticipatory **road-understanding** assistant.
 
-The goal is to test whether a minimal overlay-style interface can help the driver understand upcoming road events early enough to react smoothly — without requiring a full navigation app or route engine — and potentially by overlaying this information on top of existing navigation software.
+It is **not** a navigator and **not** an anti-radar.
 
-POC V1 is **overlay-style**. It:
+POC V1 tests a compact three-circle UI whose purpose is to help the driver understand upcoming road events early enough to react smoothly — without claiming legal correctness of speed limits, replacing a navigator, or producing a verified road-event database.
 
-- does not replace a navigator;
-- does not require a route engine;
-- does not require a map UI;
-- uses Datakam/OpenSpeedcam candidate data as its primary event source.
+POC V1 uses Datakam/OpenSpeedcam candidate data as its primary event source. That data is treated as **ExternalObservation candidate data**, not VerifiedRoadEvent truth.
 
-POC V1 is not intended to prove legal correctness of speed limits, replace a navigator, or create a verified production road-event database.
+**Primary product question:**
 
-**Primary question:**
-
-> Does a compact 3-element anticipatory UI help the driver understand what speed-related or caution-related action is needed next?
+> Does a compact three-circle anticipatory UI help the driver understand what speed-related or caution-related action is needed next?
 
 ---
 
-## 2. POC V1 Implementation Assumptions
+## 2. Validation target and staged path
 
-POC V1 is assumed to be an overlay-style assistant. It may run above existing navigation apps during testing, but it must not depend on routing, map rendering, or replacing the navigator.
+POC V1 validates behavior in an interactive web environment first. Android work is deferred until behavior is validated.
 
-Initial implementation assumptions:
+Staged path:
 
-- Android overlay or overlay-like prototype is the likely target.
-- No route engine.
-- No map UI required.
-- Event selection is based on current GPS position, movement direction, Datakam candidate points, and approximate direction semantics.
-- Datakam source data may be preprocessed into a local subset for the familiar test corridor.
-- The first test route is expected to be a familiar Moscow–Yaroslavl / Yaroslavl–Moscow corridor.
+- **Phase 0 — Interactive web route emulator.** POC V1 validation target.
+- **Phase 1 — Standalone Android prototype.** Deferred.
+- **Phase 2 — Android overlay on top of an existing navigator.** Deferred.
+
+This supersedes earlier "web replay prototype" wording in any informal draft. The phrase to use going forward is **interactive web route emulator**. The emulator is a deliberate product/testing artifact, not a throwaway toy.
+
+Why the emulator first:
+
+- the hardest POC questions are not Android-specific — they are about event selection, preview vs active, urgency response, chain context, speed-reference behavior, and overall UX feel;
+- emulator iteration is fast, deterministic, repeatable, and reviewable;
+- Android overlay permissions and platform lifecycle are a distraction before the behavior itself is validated;
+- once the behavior feels right in the emulator, Android overlay becomes a later technical execution topic instead of an open product question.
 
 ---
 
-## 3. Core UI Concept
+## 3. Interactive web route emulator
+
+The emulator is the first-class POC V1 environment. It must let the user:
+
+- choose start and finish points on a map;
+- build a road-following route through a route geometry provider;
+- render the route polyline;
+- move a simulated vehicle along the route;
+- manually control simulated speed using simple controls such as ±1 / ±5 / ±10 km/h, play/pause, and reset;
+- react to RoadAhead indications during the simulation by slowing down, accelerating, braking late, or passing too fast;
+- inspect debug fields exposed by the engine (see §9 and §11).
+
+The emulator should also expose **brake-to-target controls** (smooth / normal / strong / emergency). These are testing tools used to check whether warnings appear early enough for realistic human anticipation. They do not imply automatic braking in the future product.
+
+---
+
+## 4. Route geometry provider boundary
+
+The route provider is used **only** to obtain route geometry (the route polyline). It is not part of RoadAhead's product/runtime logic.
+
+Hard boundaries:
+
+- provider speed, ETA, traffic speed, and segment speed are **not** RoadAhead speed truth;
+- simulated vehicle speed in POC V1 is **manually controlled** by the user;
+- candidate Datakam events are projected onto the route polyline by the emulator/event-selection layer (see §8.3); this projection does not make the provider part of RoadAhead product logic.
+
+Conceptual layering:
+
+```
+Route Geometry Provider
+  -> returns route polyline only
+
+Vehicle Simulator
+  -> moves along route polyline
+  -> derives heading from route geometry
+  -> uses manually controlled speed
+
+RoadAhead Engine
+  -> receives simulated position / heading / speed
+  -> selects candidate events
+  -> updates three-circle UI
+```
+
+Route geometry provider candidates (working assumption — see §20.2 for the open technical question):
+
+- Yandex route-geometry provider — primary candidate for the first Russia-focused POC if integration is straightforward;
+- OSM-based provider such as OSRM or GraphHopper — fallback / future provider;
+- imported GPX / KML / GeoJSON track;
+- recorded GPS track;
+- manually defined polyline fallback for debug.
+
+---
+
+## 5. Core UI concept
 
 The main UI consists of up to three circular visual elements.
 
@@ -60,12 +132,7 @@ When all three are visible, they represent:
 2. primary upcoming event;
 3. secondary chained event.
 
-The circles may be arranged:
-
-- horizontally left-to-right;
-- or vertically bottom-to-top in a future layout option.
-
-For POC V1, horizontal layout is the preferred default.
+POC V1 uses **horizontal layout only**. Vertical layout is deferred (see §18 and §21).
 
 Each later event circle is visually "behind" the previous one:
 
@@ -78,78 +145,25 @@ This creates a visual perspective of events approaching along the road.
 
 ---
 
-## 4. UI Elements
+## 6. UI elements
 
-### 4.1 Left circle — current speed indicator
+### 6.1 Left circle — current speed indicator
 
 The left circle is always visible.
 
-It shows:
-
-- current vehicle speed;
-- whether that speed is acceptable, risky, or too high relative to the current speed reference.
-
-The left circle is **not merely a speedometer**. It is a behavioral indicator:
+It is **not merely a speedometer**. It is a behavioral indicator:
 
 > Am I currently driving at a speed that makes sense for what is happening now or what is about to happen?
 
-#### Left circle visual states
+Active POC V1 visual states:
 
-##### Idle / unknown reference
+- **Idle / unknown reference** — current speed shown, neutral black/dark outline, no compliance claim.
+- **Approach mode** — current speed shown plus a red required-deceleration urgency ring (see §11). Ring intensity reflects how urgently the driver needs to slow down for the next speed-relevant event.
+- **Pass-feedback hold** — temporary visual confirmation after the vehicle passes a speed-relevant event above target (see §12).
 
-Used when the system does not currently know a reliable speed reference.
+Important: the earlier "provisional current limit mode" is **not** an active POC V1 state. `provisional_limit` is preserved as a future/deferred concept only (see §10).
 
-Visual:
-
-- white circle;
-- black or neutral border;
-- current speed shown;
-- no strong warning state.
-
-Meaning: current speed is shown, but RoadAhead is not claiming whether it is correct.
-
-##### Provisional current limit mode
-
-Used after passing a recent speed-limit event.
-
-Visual:
-
-- current speed shown;
-- ring/border indicates relation to the provisional speed limit.
-
-Meaning: RoadAhead temporarily assumes the recently passed speed-limit candidate is active.
-
-##### Active approach mode
-
-Used when an upcoming event requires action.
-
-Visual:
-
-- current speed shown;
-- red border/ring becomes visible;
-- red ring transparency decreases (ring becomes more prominent) as required deceleration becomes more urgent;
-- strong red state (blinking/flashing) if the vehicle is unlikely to reach the target speed comfortably.
-
-Meaning: the driver should already be adapting speed for the upcoming event.
-
-##### Pass feedback mode
-
-Used immediately after passing an event too fast.
-
-Visual options:
-
-- red flash;
-- short pulse;
-- full red state for a short time;
-- special camera-risk feedback for cameras.
-
-Meaning: the vehicle passed the event faster than the target speed.
-
-For cameras, this may be interpreted as: **Possible camera risk** — not "confirmed violation" or "confirmed fine".
-
----
-
-### 4.2 Middle circle — primary upcoming event
+### 6.2 Middle circle — primary upcoming event
 
 The middle circle represents the next relevant upcoming event. It visually resembles a road sign.
 
@@ -158,147 +172,64 @@ It shows:
 - event target speed or advisory speed;
 - event type symbol;
 - distance to event when active;
-- size and opacity based on distance and urgency.
+- size and opacity that reflect distance and urgency.
 
 Examples of event type symbols:
 
-- `speed_limit` — typical speed limit road sign;
-- `static_camera` — speed limit with camera symbol under limit numbers;
-- `road_bump` — single bump symbol under limit numbers;
-- `other_danger` (railway-like) — railway symbol under limit numbers;
-- potentially other hazard types later.
+- `speed_limit` — typical speed-limit road sign;
+- `static_camera` — speed limit with camera symbol under the limit numbers;
+- `road_bump` — single bump symbol under the limit numbers.
 
-#### Middle circle stages
+Stages:
 
-##### Hidden
+- **Hidden** — no event is relevant enough to show.
+- **Awareness / preview** — event is in the dynamic visibility window but does not yet require action; smaller size, partial transparency, no or subtle distance label.
+- **Active** — event requires driver reaction; full size, full opacity, distance label visible; left circle switches to approach mode.
+- **Passed / handoff** — event has just been passed; brief pass-feedback may show; next event may take over (see §8 and §12).
 
-No event is relevant enough to show.
+### 6.3 Right circle — secondary chained event
 
-##### Preview
+The right circle represents the next applicable event after the primary event along the route.
 
-The event is known ahead but does not yet require action.
+It is shown when that secondary event is close enough to matter for the driver's current planning, using the same dynamic visibility model as the primary event but under the conservative assumption that current speed continues (see §8.2).
 
-Visual:
+Visual language matches the middle circle: smaller and fainter when less urgent, larger and more visible as the vehicle approaches.
 
-- smaller size — starting at approximately ½ of the current speed circle size;
-- partial transparency;
-- no distance label or a very subtle distance label.
-
-The idea is to represent perspective: the current speed circle is close (full size); the upcoming event starts smaller and less visible, and grows/becomes more visible as the car approaches.
-
-Meaning: there is something ahead, but no immediate action is required yet.
-
-##### Active
-
-The event requires driver reaction.
-
-Visual:
-
-- full size;
-- full opacity;
-- distance label shown;
-- left circle switches to active approach mode.
-
-Meaning: the driver should now adapt speed for this event.
+The secondary event **does not** drive the left-circle urgency ring. It only becomes the urgency reference once it becomes the primary event (see §8.2 and §11).
 
 ---
 
-### 4.3 Right circle — secondary chained event
+## 7. Event scope
 
-The right circle represents the next event after the primary upcoming event, but only when it matters for current planning.
+### 7.1 Initial event types (POC V1)
 
-It is shown when a chain of events is close enough that the driver should understand the sequence early.
+Included by default:
 
-Example:
+- `speed_limit` (Datakam `TYPE=101`);
+- `static_camera` (Datakam `TYPE=1`);
+- `road_bump` (Datakam `TYPE=102`).
 
-```
-60 sign ahead
-then camera shortly after
-then road_bump / 20 shortly after
-```
+Deferred by default:
 
-Purpose: avoid sudden information switching after the first event.
+- `TYPE=106 other_danger`;
+- other camera types (red-light, average-speed, mobile, traffic-light);
+- dangerous turn;
+- bad road;
+- pedestrian crossing;
+- dangerous intersection.
 
-The right circle uses the same visual language as the middle circle:
+### 7.2 Camera scope (POC V1)
 
-- smaller/farther appearance when less urgent — starting at approximately ⅓ of the current speed circle size;
-- full display only if it becomes important.
+POC V1 starts with `static_camera` only.
 
----
+Other camera types are deferred until later analysis shows they can safely reuse identical point-event semantics (a static target speed at a single point with simple direction applicability and pass feedback). Average-speed cameras are segment-based; red-light cameras are intersection-specific; mobile cameras are less reliable. Mixing these too early may obscure the core UX test.
 
-## 5. Visual Design Principles
+### 7.3 Speed-regime vs local target / hazard events
 
-The UI should imitate the visual language of road signs rather than invent an unrelated icon system.
+Two broad event classes are still useful conceptually, even though active POC V1 logic uses route-order priority and a single `approach_target` speed-reference mode (see §8.1 and §10):
 
-Principles:
-
-- circular sign-like elements;
-- red border for speed/warning relevance;
-- recognizable symbols for event types;
-- distance plate under active event sign;
-- size and transparency encode urgency/distance;
-- overlapping circles encode event sequence and perspective.
-
-The UI must remain compact enough for overlay use.
-
-The UI must not behave like a full map.
-
-### Visual Primitive Intent
-
-The POC UI should not depend on raster image assets for the main circles or signs. All primary elements should be drawable in code using simple vector/UI primitives: circles, rings, borders, fills, text, small symbols, opacity, scale, and overlap.
-
-There are two related but visually distinct concepts:
-
-**1. Current speed indicator (left circle)**
-
-- Not a literal road sign.
-- White center.
-- Black or neutral outer border in idle / unknown-reference mode.
-- Red informational ring/border appears in active approach mode; becomes more visible and prominent as urgency increases.
-- Number represents current vehicle speed.
-
-**2. Upcoming event sign (middle and right circles)**
-
-- Intentionally imitates a road speed-limit or warning sign.
-- Red circular border/ring.
-- White center.
-- Number represents event target/advisory speed.
-- Optional small event symbol appears under the number — for example: camera icon, road bump symbol, or railway-like danger symbol.
-
-The reference-image idea from the original working draft should be treated as **visual guidance only**, not as a requirement to commit PNG or SVG assets.
-
-Future design work may add proper vector assets or design mockups, but POC V1 can start with programmatically drawn shapes.
-
----
-
-## 6. Event Classes
-
-POC V1 separates events into two broad classes.
-
-### 6.1 Speed-regime events
-
-These events can temporarily define the current speed reference after passing.
-
-Initial POC example: Datakam `TYPE=101` (`speed_limit`).
-
-These may include:
-
-- ordinary speed-limit signs;
-- settlement speed-regime points (e.g., 60 km/h inside settlements).
-
-**Important:** Datakam `TYPE=101` is treated as a **speed-regime candidate**, not necessarily a literal speed-limit sign.
-
-### 6.2 Local target / hazard events
-
-These events have a target or advisory speed at the event point, but do not define the continuing speed regime after passing.
-
-Initial POC examples:
-
-- `static_camera`;
-- `road_bump`;
-- `other_danger` (railway-crossing-like candidate only — see event types).
-
-After passing these events, they must not automatically become the current speed limit.
+- **Speed-regime events** — could in principle define a continuing speed reference after passing (e.g., `speed_limit`). In POC V1, this category does **not** become an active provisional limit; see §10 on `provisional_limit` deferral.
+- **Local target / hazard events** — have a target/advisory speed at the event point but do not define the continuing speed regime after passing (e.g., `static_camera`, `road_bump`).
 
 Example:
 
@@ -309,342 +240,740 @@ road_bump  SPEED=20
 Means: target/advisory speed at the bump is 20.
 Does **not** mean: the road after the bump is now limited to 20.
 
----
+### 7.4 `TYPE=106 other_danger` deferral
 
-## 7. POC V1 Event Types
+`TYPE=106` is excluded from default POC V1 scope.
 
-POC V1 should not try to support every Datakam type.
-
-Initial included types:
-
-1. `speed_limit`
-2. `static_camera` — initial camera scope; other camera types are deferred unless trivial to support with the same logic
-3. `road_bump`
-4. `other_danger` — only as a railway-crossing-like candidate, where manually familiar or visually plausible; `TYPE=106` must **not** be globally renamed to "railway crossing"
-
-Potentially included later:
-
-- dangerous turn;
-- bad road;
-- pedestrian crossing;
-- average-speed zone;
-- red-light camera;
-- mobile camera;
-- dangerous intersection.
-
-Reason to defer these:
-
-- semantics may be less clear;
-- target speed may be ambiguous;
-- too many types may obscure the core UX test.
+Manual QA suggested many `other_danger` points may correspond to railway-like crossings in familiar inspected areas, but Datakam `TYPE=106` is **not** globally proven to mean "railway crossing". A later experiment may include `TYPE=106` only as a **railway-like danger candidate** in manually familiar regions / corridor mode, and must not silently rename `TYPE=106` to "railway crossing" globally.
 
 ---
 
-## 8. Speed Reference Model
+## 8. Event selection
 
-POC V1 needs a speed reference model because Datakam provides point events, not full speed-limit segments.
+### 8.1 Route-order primary event
 
-The system must not pretend it always knows the current legal speed.
+POC V1 uses a route-order event model. No event-type override priority is implemented.
 
-### 8.1 Speed reference states
+```
+primary_event = nearest applicable event ahead along the route
+```
 
-#### Unknown
+Minimal eligibility filters:
 
-The system does not currently know a valid speed reference.
+- ignore events behind the vehicle;
+- ignore direction-inapplicable events (see §8.3);
+- ignore disabled event types;
+- optionally suppress near-duplicate same-location/same-type events.
 
-Left circle shows current speed only.
+Special priority resolvers such as "camera outranks `speed_limit`" or "lower target speed outranks nearer event" are **not** introduced in POC V1. Road events are normally consumed in route order; introducing override rules early risks unpredictable behavior.
 
-#### Provisional limit
+### 8.2 Route-order secondary / chain logic
 
-After passing a `speed_limit` event, the system temporarily treats that speed as the current speed reference.
+```
+secondary_event = next applicable event after primary_event
+```
+
+Secondary visibility uses the same dynamic action-horizon model as the primary event (see §9), but under the simplifying assumption that the vehicle continues at the current speed. The system does not try to predict how much the driver will slow down for the primary event. As the driver actually slows down or accelerates, secondary visibility is recomputed continuously.
+
+Critical boundary:
+
+- until the primary event is passed or cleared, the secondary event **does not** affect the current-speed urgency ring, **does not** change the current target speed, **does not** trigger red speed urgency, and **does not** override the primary event;
+- when the primary event is passed/cleared, the secondary event becomes the new primary, and urgency is recomputed against the new target speed and remaining distance.
 
 Example:
 
 ```
-Passed speed_limit 60
-provisional current limit = 60
-valid for ~60 seconds (simple TTL)
+primary:   speed_limit 60
+secondary: road_bump 20
 ```
 
-For POC V1, a simple TTL is acceptable. Initial proposal: provisional limit valid for approximately 60 seconds after passing the sign.
+Before passing `speed_limit 60`, urgency is computed only against 60; `road_bump 20` is shown as secondary context but does not drive the speed ring. After passing `speed_limit 60`, `road_bump 20` becomes primary and urgency is then computed against 20.
 
-After TTL expires: speed reference returns to unknown.
+### 8.3 Direction applicability / route-path applicability
 
-#### Approach target
+Direction applicability in POC V1 is **route/path applicability**, not pure nearest-point matching.
 
-When an upcoming event becomes active, the speed reference temporarily becomes the target speed trajectory needed to pass that event correctly.
+Core principle:
 
-Example:
+> The system should not show a sign merely because it is geographically near the vehicle.
+
+A candidate event is eligible only when there is enough evidence that it applies to the path the vehicle is currently or assumedly following. Required checks:
+
+- the event projects near the current route polyline;
+- `event_route_position_m > vehicle_route_position_m` (event is ahead, not behind);
+- no unresolved branch ambiguity exists between the vehicle and the event;
+- the event direction is compatible with the local route approach direction near the event.
+
+Working assumption about Datakam `DIRECTION` (carried over from prior research, not globally proven):
+
+> `DIRECTION` likely represents the direction the sign/camera is facing — usually opposite to vehicle travel direction.
+
+So the approximate vehicle-applicable direction is:
 
 ```
-current speed = 90
-upcoming event = speed_limit 60 in 250 m
-left circle evaluates whether current speed allows comfortable approach to 60
+vehicle_applicable_direction_deg ≈ (DIRECTION + 180) mod 360
 ```
 
----
+This is used as **one signal**, not the only check. On curved roads, comparing `DIRECTION` only to the vehicle's current heading can be wrong: the sign may be correctly oriented to the road segment immediately before the event, while the vehicle's instantaneous heading is dominated by a curve. Direction compatibility should therefore be evaluated against the **local route approach tangent** near the event (or an averaged route bearing over a short approach window), not just straight-line bearing from the vehicle's current position to the event.
 
-## 9. Target Speed
+Branch / intersection ambiguity rule:
 
-For POC V1, Datakam `SPEED` is used as the target/advisory speed for the event.
+- if the vehicle is approaching a T-junction, fork, or intersection and the chosen branch is unknown, events beyond the unresolved branch must be suppressed — neither primary nor secondary;
+- once the vehicle's path is explicit (route geometry resolves the branch, or the vehicle has visibly turned), recompute primary and secondary events for the new path.
 
-Examples observed:
+Turn / deviation rule:
 
-- `road_bump` often has `SPEED=20`;
-- railway-crossing-like events may have `SPEED=30`;
-- dangerous turn may have `SPEED=90`;
-- speed-limit event uses its source speed value.
+- if the vehicle deviates from the assumed path, clear or re-evaluate the current primary/secondary events, reproject the vehicle onto the new path, and select new events from that new context.
 
-**Important limitation:** Datakam `SPEED` is useful for POC behavior, but it is **not** treated as legally verified truth.
+POC V1 scope on this topic:
 
----
-
-## 10. Active Approach Logic
-
-When an upcoming event becomes active, the system should evaluate whether the current speed is appropriate for reaching the event target speed.
-
-Inputs:
-
-- current speed;
-- event target speed;
-- distance to event;
-- event type;
-- simple comfort/deceleration thresholds.
-
-The left circle's red ring represents urgency:
-
-- barely visible / high transparency: event is active, but current speed is still manageable;
-- more visible red ring: driver should reduce speed soon;
-- strong red state: required braking is becoming too sharp;
-- flashing red ring: passing at the target speed is not possible without extreme deceleration;
-- pass feedback: event was passed above target speed.
-
-The first POC does not need a perfect braking model. It needs a consistent, simple model sufficient to test the UI concept.
+- POC V1 does not attempt to solve all real navigation ambiguity;
+- the WIP spec explicitly states that event selection is route/path applicability, not nearest-point lookup;
+- the web emulator should expose debug fields for direction applicability decisions (see §11 and §20.1);
+- exact thresholds and ambiguity heuristics are open technical/research items (see §20.1).
 
 ---
 
-## 11. Event Display Stages
+## 9. Dynamic preview / action thresholds
 
-Each event can be in one of these stages.
+POC V1 does **not** use fixed distance-only preview/active thresholds as the primary rule.
 
-### 11.1 Hidden
+Primary model: **dynamic action-horizon thresholds** based on current speed, target speed, route-projected distance, reaction time, and required deceleration.
 
-Event is too far or not relevant enough.
+Distance values remain useful, but only as guardrails:
 
-### 11.2 Preview
+- maximum lookahead caps;
+- minimum display distance;
+- fallback when target speed is unknown;
+- per-event-type tuning caps;
+- debugging / explainability constants in the emulator.
 
-Event is relevant but does not yet require action.
+Reasoning: a fixed distance is too early at low speed and too late at high speed. RoadAhead should warn early enough for normal human anticipation, not merely early enough for emergency-level braking.
 
-Visual:
+Computed values per applicable speed-relevant event:
 
-- smaller circle;
-- more transparent;
-- no distance plate.
+```
+vehicle_route_position_m
+event_route_position_m
+distance_ahead_m   = event_route_position_m - vehicle_route_position_m
+time_to_event_s
+current_speed_kmh
+target_speed_kmh
+required_deceleration_mps2
+needed_distance_smooth_m
+needed_distance_normal_m
+needed_distance_strong_m
+needed_distance_emergency_m
+```
 
-### 11.3 Active
+Conceptual formula for `needed_distance_m` at a given deceleration profile:
 
-Event requires driver action.
+```
+needed_distance_m =
+    current_speed_mps * reaction_time_s
+  + ((current_speed_mps^2 - target_speed_mps^2) / (2 * deceleration_mps2))
+  + margin_m
+```
 
-Visual:
+Initial deceleration profiles (POC tuning starting point, not legal/engineering truth):
 
-- full-size circle;
-- no transparency;
-- distance plate visible;
-- left speed indicator switches to approach mode.
+- smooth deceleration ≈ 1.0 m/s²;
+- normal deceleration ≈ 1.5 m/s²;
+- strong deceleration ≈ 2.5 m/s²;
+- emergency / design deceleration ≈ 3.4 m/s².
 
-### 11.4 Passed / handoff
+Initial reaction defaults:
 
-Event has just been passed.
+- ordinary-road reaction time ≈ 2.0 s;
+- high-speed-road reaction time ≈ 2.5 s;
+- optional UI margin ≈ 1.0 s.
 
-System may:
+These values are **starting points for emulator tuning**, not Canon. See §20.5.
 
-- show brief pass feedback;
-- update provisional current limit if event is a speed-regime event;
-- hand off to the next event in the chain.
+UI states for the dynamic action horizon:
+
+- `hidden` — no relevant upcoming event inside the effective lookahead window;
+- `awareness` — event is close enough for perception/reaction plus smooth slowdown; driver still has comfortable room;
+- `smooth_required` — smooth deceleration should begin now to reach target comfortably;
+- `normal_required` — normal deceleration is required;
+- `strong_required` — strong deceleration is required; warning is materially urgent;
+- `emergency_required` — only emergency/design-level deceleration is likely to reach the target by the event;
+- `unsafe_likely` — reaching `enforcement_threshold_speed` safely is unlikely (see §12.1 for definition).
 
 ---
 
-## 12. Event Selection Without Routing
+## 10. Speed reference model
 
-For POC V1, RoadAhead does not know the planned route.
+### 10.1 Active POC V1 modes
 
-Upcoming events should be selected from nearby Datakam candidates using:
+- `unknown` — the system does not claim to know the current valid speed reference. The current-speed circle shows current speed only, with a neutral outline and no compliance indication.
+- `approach_target` — an upcoming primary speed-relevant event is active. The current-speed circle compares current speed against the target speed of the primary event and uses the required-deceleration urgency ring (see §11) when slowing is needed.
 
-- current GPS position;
-- recent movement direction;
-- candidate coordinates;
-- approximate Datakam direction semantics;
-- maximum lookahead distance;
-- event priority.
+### 10.2 Temporary visual state
 
-This is sufficient for familiar corridor testing, but it is **not** a general navigation or routing solution.
+- `pass_feedback_hold` — a just-passed primary event entered one of the pass-feedback tiers (see §12). This is **not** a speed-reference mode; it is a temporary visual confirmation of how the previous event was passed, with severity defined by §12.
 
-Distance-to-event may be approximate in POC V1. It can initially use straight-line distance or a simple along-track approximation based on current movement direction rather than routed path distance.
+### 10.3 Deferred / future mode
 
-Relevant event candidates should be filtered by approximate applicability to the current vehicle direction. See section 13 for Datakam direction semantics.
+- `provisional_limit` — **not active in POC V1.**
+
+`provisional_limit` is preserved as a future product mode and stays in the document on purpose. It would mean the system has enough trusted information to treat a speed as the current road-segment speed reference for some period or segment. POC V1 does not have a reliable source of current road-segment speed truth, so it must not imply current legal speed-limit knowledge after passing a sign.
+
+A future `provisional_limit` mode would likely require one or more of:
+
+- reliable map / road-segment `maxspeed` data;
+- confirmed sign pass plus valid zone/segment interpretation;
+- settlement boundary / cancellation / intersection handling;
+- explicit validity distance or validity rule;
+- another trusted speed-regime source.
+
+Until that exists, RoadAhead must not behave as if it knows the current legal speed limit.
+
+### 10.4 `recent_passed_speed_candidate` — context only
+
+After passing a `speed_limit`-like event, POC V1 may store a short-lived value:
+
+```
+recent_passed_speed_candidate
+recent_passed_speed_candidate_ttl_s ≈ 30–60 s
+```
+
+This memory is **context only**. It must not:
+
+- drive current-speed compliance UI;
+- become an active provisional limit;
+- be displayed as the current legal speed;
+- influence red/green compliance of current speed.
+
+It exists only to preserve the concept for future product logic, debugging, and later experiments.
+
+### 10.5 State machine (POC V1)
+
+Transitions:
+
+- `unknown -> approach_target` when a primary speed-relevant event enters the action horizon;
+- `approach_target -> pass_feedback_hold` when the primary event is passed under a pass-feedback tier (see §12);
+- `approach_target -> approach_target(next_event)` when the primary event is passed at/below target and another event is already active;
+- `approach_target -> unknown` when the primary event is passed at/below target and no next event is active;
+- `pass_feedback_hold -> approach_target(next_event)` after the hold elapses if another applicable event is active;
+- `pass_feedback_hold -> unknown` after the hold elapses if no next event is active.
 
 ---
 
-## 13. Chain Logic
+## 11. Required-deceleration urgency model
 
-The third circle appears when the next event after the primary event is close enough to matter now.
+The left/current-speed circle does **not** primarily indicate "an event exists" — the event itself is shown by the middle/right circles. The left circle indicates whether the driver currently needs to change speed for the **next speed-relevant primary event**.
 
-Purpose: the driver should not be surprised by a second event immediately after the first.
+Core inputs:
+
+- `current_speed`;
+- `target_speed` (from the primary event);
+- `distance_ahead_m` (route-projected);
+- `reaction_time_s`;
+- deceleration profile thresholds (§9);
+- `display_hysteresis_kmh`.
+
+### 11.1 Neutral-at-target rule
+
+If `current_speed <= target_speed + display_hysteresis_kmh`:
+
+- the current-speed circle remains neutral;
+- the default outline is shown;
+- no red urgency ring is displayed;
+- the upcoming event sign/card remains visible nearby as context.
+
+If the driver later accelerates above `target_speed + display_hysteresis_kmh` before passing the same event, the red urgency ring reappears and is recalculated from the live speed and remaining distance.
+
+### 11.2 Live recalculation rule
+
+The urgency state is **not latched** when an event first appears. It is recomputed continuously from event activation until the event is passed or cleared.
 
 Examples:
 
-```
-speed_limit 60
-then camera 60 shortly after
-```
+- driver starts above target speed → ring appears according to required deceleration;
+- driver brakes smoothly → ring intensity decreases;
+- driver reaches target speed → ring disappears, circle becomes neutral;
+- driver accelerates again before the event → ring reappears;
+- driver accelerates late → ring may jump directly to `strong_required` / `emergency_required` / `unsafe_likely` (blinking).
 
-```
-speed_limit 60
-then road_bump 20 shortly after
-```
+### 11.3 Ring intensity bands
 
-POC V1 can use a simple chain rule:
+Use **alpha** (not "transparency") to avoid ambiguity:
 
-> Show secondary event if it occurs within a fixed chain distance/time window after the primary event.
+- alpha 0.2 — `awareness` (weak visible ring);
+- alpha 0.4 — `smooth_required`;
+- alpha 0.6 — `normal_required`;
+- alpha 0.8 — `strong_required`;
+- alpha 1.0 — `emergency_required`;
+- blinking alpha 1.0 — `unsafe_likely`.
 
-Exact thresholds can be tuned later.
+### 11.4 Normal guidance is based on `target_speed`
+
+Normal guidance bands (`awareness`, `smooth_required`, `normal_required`, `strong_required`, `emergency_required`) are calculated against the actual event `target_speed`, **not** against `target_speed + enforcement_tolerance`.
+
+Reasoning: RoadAhead should recommend correct driving behavior for the posted/recommended target. It should not teach the driver to consume the legal enforcement tolerance buffer as normal driving speed.
+
+`enforcement_tolerance` is used **only** in three places (see §12 and §13):
+
+- the `unsafe_likely` blinking pre-pass threshold;
+- pass-feedback severity tiers;
+- camera-risk feedback.
+
+`display_hysteresis_kmh` is a **separate** value used only for UI smoothing around `target_speed`. It is not the legal/enforcement tolerance and must not be conflated with `enforcement_tolerance`.
+
+### 11.5 Suggested POC tuning fields
+
+- `display_hysteresis_kmh` ≈ 1–2 km/h;
+- `clear_hysteresis_kmh` ≈ 2–3 km/h;
+- `alpha_smoothing_ms` ≈ 500–1000 ms.
+
+These are tuning starting points for the emulator, not Canon. Final values are open tuning items (see §20.5).
+
+### 11.6 Emulator debug fields
+
+The emulator should expose, at minimum:
+
+- `current_speed_kmh`;
+- `target_speed_kmh`;
+- `distance_ahead_m`;
+- `time_to_event_s`;
+- `required_deceleration_mps2`;
+- selected urgency state;
+- `red_ring_alpha`;
+- braking profile thresholds;
+- reaction time;
+- UI margin.
 
 ---
 
-## 14. Datakam Direction Semantics
+## 12. Pass feedback (`pass_feedback_hold`)
 
-Current Datakam QA findings suggest:
+### 12.1 Definitions
 
-> `DIRECTION` likely means where the sign/camera faces — usually opposite to vehicle travel direction.
+- `target_speed` — the required/recommended speed from the event itself (e.g., `speed_limit 60`, `road_bump 20`).
+- `display_hysteresis_kmh` — small UI smoothing value around `target_speed`; **separate** from any legal/enforcement concept.
+- `enforcement_tolerance` — jurisdiction/profile-specific tolerance, used only for pass-severity and `unsafe_likely`/camera-risk thresholds. Resolved tolerance can be:
+  - absolute km/h (e.g., +10 or +20);
+  - percentage (e.g., +5%);
+  - hybrid / country-specific rule (future).
+- `enforcement_threshold_speed = target_speed + resolved_enforcement_tolerance`.
 
-Therefore, the approximate applicable vehicle travel direction is:
+`enforcement_tolerance` is configurable. Do not hardcode a single global legal tolerance. Initial Russia-focused POC default is +20 km/h (see §20.4).
+
+### 12.2 Pre-pass `unsafe_likely` (blinking)
+
+The outer red urgency ring grows according to required deceleration toward `target_speed` (see §11). Blinking `unsafe_likely` is a stricter pre-pass condition:
+
+> The vehicle can no longer realistically pass the event at or below `enforcement_threshold_speed` without unsafe/emergency-level braking.
+
+Blinking is therefore **pre-pass only**, on the urgency ring. It does **not** transfer to the whole sign or to the full speed circle after pass/commit. Post-pass feedback is intentionally stable and readable.
+
+### 12.3 Unrecoverable-distance pre-pass trigger
+
+Before the actual pass point, the system may also enter the critical pre-pass path when:
 
 ```
-(DIRECTION + 180) mod 360
+distance_ahead_m <= minimum_unrecoverable_distance_m
+AND current_speed > enforcement_threshold_speed
 ```
 
-This is a **strong source-level observation**, not globally proven truth.
+`minimum_unrecoverable_distance_m` can be derived from the emergency/design deceleration profile plus a small margin, or implemented as a tunable guardrail in the emulator.
 
-POC V1 should use this carefully when deciding whether an event applies to the current vehicle direction.
+### 12.4 Post-pass tiers
+
+When the event is passed, compare `pass_speed` against `target_speed` and `enforcement_threshold_speed`:
+
+- **Tier 0 — passed at or below target** (`pass_speed <= target_speed`):
+  - no pass feedback;
+  - speed circle remains/returns neutral;
+  - clear primary event;
+  - transition to next primary if one is active, otherwise return to `unknown`.
+- **Tier 1 — above target but within enforcement tolerance** (`target_speed < pass_speed <= enforcement_threshold_speed`):
+  - keep the just-passed event/sign visible for `pass_feedback_hold_s`;
+  - show a stable red outer ring / red outline reminder on the speed circle;
+  - **do not** fill the inner white speed-circle area red;
+  - **do not** reverse speed digits to white;
+  - **do not** blink.
+- **Tier 2 — above enforcement threshold** (`pass_speed > enforcement_threshold_speed`):
+  - keep the just-passed event/sign visible;
+  - fill the inner white area of the speed circle with solid red;
+  - reverse speed digits to white;
+  - hold the visual state for `pass_feedback_hold_s`.
+
+### 12.5 Hold timing
+
+- `pass_feedback_hold_s` default ≈ 4 seconds;
+- acceptable tuning range ≈ 3–5 seconds;
+- the hold should be long enough to be understood, not an instant flash.
+
+### 12.6 Transition after `pass_feedback_hold`
+
+If another applicable event is already active:
+
+- previous primary is cleared;
+- next event becomes the new primary;
+- the speed indicator enters `approach_target` for the new primary;
+- urgency is recomputed from the current speed, new target speed, and new distance ahead.
+
+If no next active event exists:
+
+- the speed circle returns to `unknown`;
+- the just-passed speed may be stored as `recent_passed_speed_candidate` for context only (see §10.4).
 
 ---
 
-## 15. Data Source Policy
+## 13. Camera-risk feedback
+
+Camera-risk is a **semantic variant** of `pass_feedback_hold`, not a separate state machine.
+
+### 13.1 What camera-risk feedback must not say
+
+For `static_camera` events, the system must **not** claim:
+
+- violation;
+- fine;
+- confirmed capture;
+- guaranteed enforcement.
+
+It should communicate only:
+
+> Possible camera risk.
+
+### 13.2 Camera-risk tiers
+
+Same threshold model as §12 (`target_speed`, `enforcement_threshold_speed`):
+
+- `pass_speed <= target_speed` → no special feedback; clear event / proceed to next event.
+- `target_speed < pass_speed <= enforcement_threshold_speed` → non-critical over-target pass feedback; keep the camera event visible briefly; speed circle inner area stays normal; **do not** show the camera-risk icon variant; **do not** imply enforcement risk.
+- `pass_speed > enforcement_threshold_speed`, or pre-pass unrecoverable distance is reached at speed above `enforcement_threshold_speed`:
+  - enter `pass_feedback_hold` / camera-risk variant;
+  - keep the just-passed camera event visible;
+  - fill the inner white area of the speed circle with solid red;
+  - show a camera symbol/icon **instead of** speed digits in the inner area;
+  - optionally pulse/blink the camera symbol 2–3 times for extra noticeability;
+  - **do not** blink the entire speed circle or whole sign;
+  - hold the feedback state for `pass_feedback_hold_s`.
+
+### 13.3 Pulse/blink rule
+
+The optional camera-icon pulse is a short emphasis inside the stable hold state. It must not become an aggressive alarm. The red inner circle remains stable; only the camera symbol/icon may pulse briefly.
+
+### 13.4 Suggested defaults
+
+- `pass_feedback_hold_s` ≈ 4 seconds;
+- `camera_icon_pulse_count` ≈ 2–3.
+
+---
+
+## 14. Data preparation and normalized event store
+
+### 14.1 Boundary
+
+Raw `speedcam.txt` / raw CSV-like text is **import / source material only**. It is **not** runtime product data.
+
+POC V1 includes an explicit data-preparation step that converts raw Datakam/OpenSpeedcam input into a prepared local event store.
+
+### 14.2 What the prepared store must support
+
+- normalized event schema;
+- event-type mapping;
+- geo filtering / spatial lookup;
+- route-proximity candidate selection;
+- direction applicability fields;
+- source metadata;
+- **reserved** fields for future user/community validation (see §14.5).
+
+### 14.3 Storage candidates (open technical question)
+
+The exact storage engine is open to technical recommendation (see §20.3). Candidate directions:
+
+- **SQLite event store with spatial index** — good default for POC and Android-oriented work; ordinary SQLite tables plus a spatial index strategy for bounding-box / nearby-event lookup.
+- **GeoPackage-style store** — attractive future-compatible option; geospatial container built on SQLite, supports vector features, attributes, metadata, and extensions.
+- **Plain JSON / GeoJSON** — acceptable only as an interchange/debug artifact or a tiny deterministic test fixture; not preferred as the real runtime store once geo lookup and validation metadata matter.
+- **Server-side spatial database** — future work for aggregation, updates, validation, moderation, sync. Out of POC V1 scope; must not block POC V1.
+
+### 14.4 Minimum normalized event fields
+
+- `event_id`;
+- `source`;
+- `source_event_id` / `source_idx`;
+- `raw_type`;
+- `normalized_type`;
+- `lat`;
+- `lon`;
+- route-projection fields when computed;
+- `target_speed_kmh` (nullable);
+- `direction_type`;
+- `source_direction_deg`;
+- `vehicle_applicable_direction_deg`;
+- `confidence` / `source_confidence`;
+- `enabled_for_poc`;
+- `created_at` / `imported_at`;
+- `source_dataset_version`.
+
+### 14.5 Reserved future validation fields
+
+The data model must not block the future validation lifecycle. Reserve schema space for fields such as:
+
+- `validation_status` (e.g., `unknown` / `unconfirmed` / `confirmed` / `disputed` / `removed_candidate`);
+- `confirmations_count`;
+- `rejections_count`;
+- `last_confirmed_at`;
+- `last_rejected_at`;
+- `last_seen_by_user_at`;
+- `confirmation_score`;
+- `confirmation_expires_at`;
+- `user_added`;
+- `user_added_at`;
+- `user_added_by` (only if accounts exist later);
+- `superseded_by_event_id`;
+- `source_revision`.
+
+POC V1 does **not** implement community validation, accounts, moderation, or production sync. The schema only needs to be rich enough that validation and freshness can be added later without redesigning the event model from scratch.
+
+### 14.6 Repo / data-policy boundary
+
+- raw Datakam/OpenSpeedcam files remain local/uncommitted;
+- generated full data stores are not committed unless explicitly approved;
+- small synthetic or manually curated fixtures may be committed for tests;
+- raw text input is treated as source material only, not committed product data.
+
+---
+
+## 15. Visual design principles
+
+The UI imitates the visual language of road signs rather than inventing an unrelated icon system.
+
+Principles:
+
+- circular sign-like elements;
+- red border for speed/warning relevance;
+- recognizable symbols for event types;
+- distance plate under active event sign;
+- size and alpha encode urgency/distance;
+- overlapping circles encode event sequence and perspective;
+- compact enough for overlay use in a future phase, while POC V1 itself runs in the web emulator;
+- must not behave like a full map.
+
+### 15.1 Visual primitive intent
+
+The POC UI should not depend on raster image assets for the main circles or signs. All primary elements should be drawable in code using simple vector/UI primitives: circles, rings, borders, fills, text, small symbols, alpha, scale, and overlap.
+
+Two related but visually distinct concepts:
+
+**1. Current speed indicator (left circle)**
+
+- Not a literal road sign.
+- White center.
+- Neutral/black outer outline in idle / unknown-reference mode.
+- Red required-deceleration urgency ring appears in approach mode; ring intensity reflects urgency (see §11).
+- Pass-feedback states use the §12 visual rules.
+- Number represents the current vehicle speed.
+
+**2. Upcoming event sign (middle and right circles)**
+
+- Intentionally imitates a road speed-limit or warning sign.
+- Red circular border/ring.
+- White center.
+- Number represents the event target/advisory speed.
+- Optional small event symbol under the number — for example: camera icon, road-bump symbol, or railway-like danger symbol (the latter only if `TYPE=106` is enabled in a manually familiar corridor; see §7.4).
+
+Reference-image ideas from earlier working drafts are **visual guidance only**, not a requirement to commit PNG or SVG assets. Future design work may add proper vector assets or design mockups, but POC V1 can start with programmatically drawn shapes.
+
+---
+
+## 16. Datakam / OpenSpeedcam data source policy
 
 POC V1 is based primarily on Datakam/OpenSpeedcam candidate data.
 
-Datakam is treated as:
+Datakam/OpenSpeedcam events are treated as:
 
 > **ExternalObservation candidate data** — not VerifiedRoadEvent truth.
 
-POC V1 may use Datakam data to test the interaction concept, but the system must not claim legal correctness.
+Implications:
+
+- POC V1 may use this data to test the interaction concept;
+- the system **must not** claim legal correctness;
+- the system **must not** present candidate events as confirmed/verified;
+- direction applicability must follow §8.3 (route/path applicability), not pure nearest-point lookup;
+- raw datasets are not committed; preparation flow is described in §14.
+
+POC V1 is not a navigator and not an anti-radar. Camera-risk feedback (see §13) communicates only "possible camera risk", not enforcement claims.
 
 ---
 
-## 16. OSM Role in POC V1
+## 17. OSM role in POC V1
 
-OSM is useful for future improvement but should **not** be central to POC V1.
+OSM is useful for future improvement but must **not** be central to POC V1.
 
-There is **no runtime OSM dependency in POC V1**.
+There is **no runtime OSM dependency in POC V1.**
 
-Potential future OSM use cases:
+Potential future OSM use cases (out of POC V1 scope):
 
-- road geometry;
-- segment-level `maxspeed`;
-- railway crossing validation;
-- future comparison layer.
+- road geometry for offline route fallback;
+- segment-level `maxspeed` to support a future `provisional_limit` mode;
+- railway-crossing validation layer;
+- comparison/validation layer against external candidates.
 
-For POC V1: use provisional TTL after speed-limit events instead.
-
-Future improvement: use OSM `maxspeed` / road metadata to improve current speed reference after passing signs — but this is deferred.
+For POC V1, after passing a `speed_limit`-like event the speed reference returns to `unknown` (or to the next active `approach_target`). It does **not** turn into a `provisional_limit` (see §10.3).
 
 ---
 
-## 17. Explicit Non-Goals for POC V1
+## 18. Explicit non-goals for POC V1
 
-POC V1 does not solve:
+POC V1 does **not** solve, implement, or claim:
 
 - full legal speed-limit validity;
-- end-of-settlement signs;
-- intersections cancelling restrictions;
+- end-of-settlement signs / cancellation handling;
+- intersection effects on speed regime;
 - distance plates / zone-of-validity signs;
-- full route engine;
-- Android production implementation;
-- backend, accounts, or sync;
-- verified RoadEvent database;
-- OSM production integration;
-- automatic promotion of external data to truth;
+- a full route engine or navigation;
+- Android overlay implementation;
+- standalone Android prototype implementation;
+- backend, accounts, sync, cloud storage, telemetry, community validation;
+- a verified RoadEvent database;
+- production OSM integration / runtime OSM dependency;
+- automatic promotion of any external data to "truth";
 - support for every Datakam event type;
-- perfect braking model.
+- a production-grade braking/physics model;
+- an active `provisional_limit` mode (see §10.3);
+- vertical layout (deferred);
+- treating the route provider's speed/ETA/traffic speed as RoadAhead speed truth;
+- treating the simulated vehicle's speed as anything other than manually controlled.
 
 ---
 
-## 18. Success Criteria
+## 19. Success criteria
 
-POC V1 is successful if it helps answer:
+POC V1 is successful if it helps answer, primarily through interactive web route emulator sessions:
 
-1. Does the 3-circle UI communicate upcoming events clearly?
-2. Is preview vs. active warning understandable?
-3. Does the left speed indicator help the driver understand whether speed is appropriate?
-4. Is chain awareness useful?
-5. Is Datakam good enough to test the concept on familiar routes?
-6. Does the interface feel calmer and more anticipatory than existing navigator warnings?
-
----
-
-## 19. Open Questions
-
-1. What exact distance thresholds should define preview and active stages?
-2. Should thresholds differ by event type?
-3. How long should provisional speed limits remain active after passing?
-4. Should provisional validity be time-based, distance-based, or both?
-5. What is the best visual treatment for pass feedback?
-6. How should camera-risk feedback differ from general too-fast feedback?
-7. Should horizontal layout be the only POC layout?
-8. Which Datakam camera types should be included in POC V1?
-9. How should the app handle conflicting nearby events?
-10. Should railway-like `TYPE=106` be included immediately or after more validation?
+1. Does the three-circle UI communicate upcoming events clearly?
+2. Is `awareness` / preview vs `active` reaction distinguishable and understandable?
+3. Does the left speed indicator help the driver judge whether the current speed is appropriate for what is coming?
+4. Is the route-order chain awareness useful (secondary visible without overriding the primary)?
+5. Are dynamic action-horizon thresholds tuned well enough that warnings appear early enough for normal human anticipation, not just last-second emergency braking?
+6. Are the pass-feedback tiers (§12) and camera-risk variant (§13) understandable at a glance and clearly **not** alarmist?
+7. Is direction / route-path applicability (§8.3) good enough on familiar corridors that obviously-inapplicable signs are suppressed?
+8. Does the interface feel calmer and more anticipatory than existing navigator warnings?
 
 ---
 
-## 20. Next Planning Step
+## 20. Open technical / research questions
 
-The open questions above need to be classified before implementation begins. This PR establishes the WIP baseline only — no answers are required here.
+These items are **not** silently answered as product decisions. They are explicitly preserved as open technical/research/tuning items, to be addressed by a later technical recommendation, emulator experiments, and (later) on-device validation.
 
-Suggested classification for a follow-up issue:
+### 20.1 Direction applicability tuning (open technical)
 
-**A — Must answer before implementation:**
+The product requirement is conservative route-path applicability (§8.3). Specific thresholds are open:
 
-- Q1: preview/active distance thresholds (needed to implement event stages)
-- Q2: whether thresholds differ by type (affects event stage logic)
-- Q8: which camera types are in scope (affects data filtering)
-- Q9: how to handle conflicting nearby events (affects event selection logic)
+- initial `direction_delta_deg` threshold;
+- route-approach window length near the event;
+- branch-ambiguity detection at T-junctions / forks / intersections in the first emulator;
+- behavior when Datakam `DIRECTION` conflicts with route geometry but visual QA suggests the candidate point is correct.
 
-**B — Can tune during POC:**
+Working approach: use route/path projection; compare sign/camera direction to the local route approach tangent near the event; suppress events beyond unresolved branches; expose debug fields in the emulator; tune in the web emulator first, then in real-device movement tests later.
 
-- Q3 / Q4: provisional speed limit duration and mode (TTL ~60s is a reasonable starting point)
-- Q5: pass feedback visual treatment
-- Q6: camera-risk feedback distinction
-- Q10: `TYPE=106` railway-like inclusion (can start excluded, add after field observation)
+### 20.2 Route geometry provider (open technical)
 
-**C — Defer to V2:**
+Working assumption: Yandex first, if its route polyline is the simplest technically feasible option for a Russia-focused emulator. Open items:
 
-- Q7: layout options beyond horizontal
+- whether Yandex can provide the needed route polyline/geometry cleanly;
+- API/key/pricing/terms constraints relevant to a local POC;
+- whether integration complexity is lower than OSRM/GraphHopper for the first Russia-focused emulator.
+
+Working fallback expectation:
+
+- GPX / KML / GeoJSON imported route as an important fallback for the first emulator;
+- manually defined polyline as a debug fallback;
+- OSRM / GraphHopper deferred until after the basic emulator works, unless Yandex proves impractical.
+
+### 20.3 Prepared event store engine (open technical)
+
+Product requirement: prepared, normalized data — not raw `speedcam.txt` at runtime. Storage engine is open:
+
+- start with **SQLite + spatial index** as the intended product/Android-friendly direction; or
+- start with a **normalized JSON / GeoJSON fixture**, with an explicit migration path to SQLite/GeoPackage.
+
+Either way:
+
+- raw `speedcam.txt` stays import-only and uncommitted;
+- any committed fixture must be small, synthetic or manually curated, and safe to keep in the repo.
+
+### 20.4 Enforcement profile defaults (open product/technical)
+
+Working defaults:
+
+- POC default for the first Russia-focused emulator: Russia +20 km/h;
+- generic future default may be percentage-based (e.g., +5%);
+- known jurisdiction overrides should be supported (e.g., Russia +20, Belarus +10);
+- user custom exceptions may be supported in the future.
+
+POC requirement:
+
+- the emulator should expose `enforcement_tolerance_profile` as a visible config field;
+- profile switching in the emulator is a "nice to have" if cheap.
+
+### 20.5 Threshold tuning ranges (open tuning)
+
+Starting points only — final values come from emulator experiments:
+
+- `pass_feedback_hold_s` ≈ 4 s (acceptable range 3–5 s);
+- `display_hysteresis_kmh` ≈ 1–2 km/h;
+- `clear_hysteresis_kmh` ≈ 2–3 km/h;
+- `alpha_smoothing_ms` ≈ 500–1000 ms;
+- deceleration profile values from §9 (smooth 1.0, normal 1.5, strong 2.5, emergency 3.4 m/s²);
+- reaction-time defaults from §9 (ordinary 2.0 s, high-speed 2.5 s, optional UI margin 1.0 s);
+- per-type lookahead caps and minimum display distances as guardrails for §9.
+
+### 20.6 Validation lifecycle (out of POC V1 scope, open future)
+
+User/community validation is **out of scope** for POC V1 and must not become a first-version implementation requirement.
+
+Keep only data-model extensibility:
+
+- reserve schema fields for future validation/confirmation lifecycle (see §14.5);
+- do not implement validation prompts;
+- do not implement accounts, moderation, sync, or community validation;
+- do not finalize confirmation heuristics now.
+
+Earlier brainstorm ideas (e.g., "≥ 5 confirmations and last confirmation not older than 3 months") are future product notes only, not POC V1 hard requirements.
+
+### 20.7 `TYPE=106` corridor mode (open product)
+
+`TYPE=106` is excluded by default (§7.4). A later experiment may include `TYPE=106` only as a "railway-like danger candidate" in known/familiar regions / corridor mode. The exact policy and corridor definition are open.
 
 ---
 
-## 21. Current Working POC V1 Summary
+## 21. Future / post-POC ideas
 
-POC V1 should be a compact overlay-style assistant with:
+Captured here so they are not confused with POC V1 working decisions:
 
-- one always-visible current speed indicator;
-- one primary upcoming event sign;
-- one optional secondary chained event sign;
-- Datakam-based event candidates;
-- simple preview / active / passed stages;
-- simple provisional current speed reference;
-- simple approach-speed urgency indicator;
-- no claim of verified legal truth.
+- **Standalone Android prototype** (Phase 1).
+- **Android overlay** on top of an existing navigator (Phase 2), once behavior is validated.
+- **`provisional_limit` mode**, when reliable road-segment speed truth is available (e.g., OSM `maxspeed`, sign validity / cancellation / settlement-boundary / intersection rules).
+- **Vertical layout** as an additional UI option.
+- **Broader event-type set** — pedestrian crossings, dangerous turns, bad road, dangerous intersections.
+- **Broader camera-type set** — average-speed camera, red-light camera, mobile camera — only if/when point-event semantics can safely be unified or extended.
+- **Community / user validation lifecycle** — user-added events, lightweight confirmations / rejections, freshness/expiry, prompting policy. Schema reserves fields for this; UI does not implement it in POC V1.
+- **Server-side spatial database** for aggregation, validation, moderation, and sync.
+- **Real GPS source** in a real-device prototype (the simulated, manually controlled speed of POC V1 is replaced by real device telemetry).
+
+---
+
+## 22. Current working POC V1 summary
+
+POC V1 is a compact anticipatory road-understanding assistant validated first in an **interactive web route emulator**, with:
+
+- one always-visible current-speed indicator (left circle), driven by a continuously recomputed required-deceleration urgency model;
+- one primary upcoming event sign (middle circle), selected by route order with route-path applicability;
+- one optional secondary chained event sign (right circle), shown by the same dynamic action-horizon model under the conservative "current speed continues" assumption;
+- Datakam/OpenSpeedcam-based candidate events, prepared into a normalized local geo-indexed event store before runtime;
+- dynamic preview / action-horizon thresholds (not fixed distance only);
+- two active speed-reference modes (`unknown`, `approach_target`) plus a temporary `pass_feedback_hold` visual state;
+- `provisional_limit` preserved as a deferred future concept, with `recent_passed_speed_candidate` stored as context only;
+- pass-feedback tiers and a camera-risk variant that use `enforcement_tolerance` only for severity / `unsafe_likely` / camera-risk thresholds;
+- horizontal layout only;
+- no claim of legal correctness, no navigator behavior, no anti-radar behavior, no overlay of any third-party app in this phase.
 
 **Core product idea:**
 
@@ -653,13 +982,30 @@ POC V1 should be a compact overlay-style assistant with:
 
 ---
 
-## 22. Related Research / Repo Context
+## 23. Process / next planning step
 
-The following files in this repo provide supporting research and context for this spec:
+This document is **WIP**, not Canon, and not an implementation plan.
 
-- [`docs/research/datakam-speedcam-format-and-route-qa.md`](../../research/datakam-speedcam-format-and-route-qa.md) — Datakam speedcam format notes and route QA
-- [`docs/research/datakam-manual-visual-validation.md`](../../research/datakam-manual-visual-validation.md) — Manual visual validation of Datakam candidate points
-- [`docs/research/datakam-manual-qa-status-semantics.md`](../../research/datakam-manual-qa-status-semantics.md) — QA status semantics for manual validation workflow
-- [`docs/research/datakam-road-bump-direction-semantics.md`](../../research/datakam-road-bump-direction-semantics.md) — Direction semantics audit for `road_bump` entries
-- [`docs/research/osm-road-metadata-source-review.md`](../../research/osm-road-metadata-source-review.md) — OSM road metadata source review
-- [`web/datakam-viewer/`](../../../web/datakam-viewer/) — Local Datakam QA viewer tool
+After review of this revised WIP spec, the deliberate next steps are:
+
+1. Decide which parts are stable enough to promote to Canon (e.g., the staged validation path, the route-provider boundary, the `provisional_limit` deferral, the `enforcement_tolerance` separation rule).
+2. Capture stable decisions as ADR-style decision records under `docs/decisions/` when (and only when) they are ready.
+3. Update issue **#17** with accepted decisions.
+4. Only after that, slice technical execution and create implementation issues.
+
+This PR does not perform any of the above. It only updates the WIP spec.
+
+---
+
+## 24. Related research / repo context
+
+Supporting research and context for this WIP spec:
+
+- [`docs/research/datakam-speedcam-format-and-route-qa.md`](../../research/datakam-speedcam-format-and-route-qa.md) — Datakam speedcam format notes and route QA.
+- [`docs/research/datakam-manual-visual-validation.md`](../../research/datakam-manual-visual-validation.md) — manual visual validation of Datakam candidate points.
+- [`docs/research/datakam-manual-qa-status-semantics.md`](../../research/datakam-manual-qa-status-semantics.md) — QA status semantics for the manual validation workflow.
+- [`docs/research/datakam-road-bump-direction-semantics.md`](../../research/datakam-road-bump-direction-semantics.md) — direction semantics audit for `road_bump` entries.
+- [`docs/research/driver-helper-gibdd-camera-map-source-review.md`](../../research/driver-helper-gibdd-camera-map-source-review.md) — Driver Helper / GIBDD camera map source review.
+- [`docs/research/osm-road-metadata-source-review.md`](../../research/osm-road-metadata-source-review.md) — OSM road metadata source review.
+- [`web/datakam-viewer/`](../../../web/datakam-viewer/) — local Datakam QA viewer tool.
+- Companion decision/input workbook: [`roadahead-poc-v1-initial-product-decisions-workbook.md`](roadahead-poc-v1-initial-product-decisions-workbook.md).
