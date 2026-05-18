@@ -1,30 +1,31 @@
-RA-0002__POC_V1_WIP_Spec_Revision.v1
+RA-0003__POC_V1_Technical_Recommendations.v1
 
-Work Area: Product Specs WIP / documentation synthesis / technical-research framing
-Tech Area: RoadAhead POC V1, three-circle UI, interactive web route emulator, Datakam/OpenSpeedcam candidate data, event selection, UX state model, data preparation, direction applicability
+Work Area: Research / technical recommendations / documentation synthesis
+Tech Area: RoadAhead POC V1, interactive web route emulator, direction applicability, route geometry provider feasibility, prepared event store, enforcement profile, threshold tuning strategy
 
 Scope:
-- Revise the RoadAhead POC V1 WIP spec using the current decision workbook.
-- Use the existing baseline WIP spec as the main product WIP artifact.
-- Integrate accepted working decisions from the initial product decisions workbook.
-- Keep the output as WIP, not Canon.
-- Clarify the POC V1 validation target: interactive web route emulator first.
-- Clarify event selection, speed urgency, pass feedback, camera feedback, data preparation, and direction applicability.
-- Preserve unresolved technical/research questions as open items for recommendation and later validation.
-- Prepare documentation so later Canon promotion and implementation slicing can happen deliberately.
+- Prepare technical/research recommendation documents for the open WIP questions called out in the POC V1 WIP spec and in Issue #20.
+- Use the current reader-facing POC V1 WIP spec as source of truth; the companion decision workbook is rationale/input only.
+- This iteration begins with the direction applicability / route-path applicability recommendation document.
+- Other recommendation areas from Issue #20 (route geometry provider, prepared event store, enforcement profile, threshold tuning) remain in-scope for this overall iteration but are handled as separate small branches/PRs.
+- Keep all output as Research, not Canon.
+- Preserve unresolved technical/research questions as open items, with proposed starting defaults and validation needs for the web emulator.
 
 Explicit non-scope:
 - No code implementation.
-- No Android overlay implementation.
-- No backend, accounts, sync, cloud, or community validation implementation.
+- No app/viewer code changes (inspect only as useful background).
+- No Android overlay work.
+- No route provider integration.
 - No Canon promotion.
-- No decision record creation.
+- No ADR / decision record creation.
 - No implementation issue creation.
-- No committing raw Datakam/OpenSpeedcam data or private GPS/location data.
+- No implementation slicing.
+- No committing raw Datakam/OpenSpeedcam or private GPS/location data.
 - No treating Datakam/OpenSpeedcam or any external source as verified truth.
+- No claim of legal speed-limit correctness.
 - No turning RoadAhead into a navigator or anti-radar.
 
-Current product framing:
+Current product framing (unchanged):
 - RoadAhead is an anticipatory road-understanding assistant.
 - RoadAhead is not a navigator and not an anti-radar.
 - POC V1 validates the three-circle UI and event/urgency behavior before Android overlay work.
@@ -36,38 +37,38 @@ Current product framing:
 - Direction applicability must be route/path-based, not pure nearest-point lookup.
 
 Input artifacts:
-- docs/product/wip/roadahead-poc-v1-three-circle-assistant.md
-- docs/product/wip/roadahead-poc-v1-initial-product-decisions-workbook.md
+- docs/product/wip/roadahead-poc-v1-three-circle-assistant.md (main WIP spec, wins over workbook on conflict)
+- docs/product/wip/roadahead-poc-v1-initial-product-decisions-workbook.md (rationale/input history)
+- docs/research/datakam-speedcam-format-and-route-qa.md
+- docs/research/datakam-manual-visual-validation.md
+- docs/research/datakam-manual-qa-status-semantics.md
+- docs/research/datakam-road-bump-direction-semantics.md
+- web/datakam-viewer/ (background only; existing direction display / DIRTYPE / DIRECTION semantics)
+- tools/datakam/ (background only; current parsing assumptions)
 
 Related issue:
-- #17 — Planning tracker for RoadAhead POC V1 WIP revision, decisions, and later implementation slices
+- #20 — Prepare POC V1 technical recommendations for open WIP questions
 
-Order:
+Order (this iteration):
 1. Read CLAUDE.md.
 2. Read this iteration descriptor.
-3. Read the baseline WIP spec.
-4. Read the initial product decisions workbook.
-5. Revise the baseline WIP spec into a clearer updated WIP spec.
-6. Add reciprocal cross-links between the WIP spec and workbook.
-7. Keep remaining technical/research questions explicit.
-8. Do not create Canon, implementation slices, implementation issues, or code changes in this iteration.
+3. Read the main WIP spec and the relevant research notes.
+4. Write technical/research recommendation document(s) under docs/research/.
+5. Start with the direction applicability / route-path applicability recommendation in a separate small PR.
+6. Open follow-up small branches/PRs for the remaining Issue #20 topics as they are tackled.
+7. Do not create Canon, decision records, implementation slices, implementation issues, or code changes in this iteration.
 
-Definition of Done:
-- The main POC V1 WIP spec reflects the accepted working decisions from the workbook.
-- The decision workbook remains available as a companion WIP input document.
-- Internal relative links between the two WIP docs work.
-- The updated WIP spec clearly separates:
-  - accepted working decisions;
-  - open technical/research questions;
-  - future/post-POC ideas;
-  - explicit non-scope.
+Definition of Done (per recommendation slice):
+- One self-contained recommendation document under docs/research/, clearly marked Research / not Canon.
+- Document distinguishes proposed starting defaults, rationale/tradeoffs, risks/unknowns, emulator validation needs, future strategy, and Canon-candidate vs WIP-tuning items.
+- Cross-links to the main WIP spec, workbook, and relevant research notes.
 - No raw data is committed.
 - No code is changed.
 - No Canon docs or decision records are created.
 - No implementation issues are created.
-- The next step after review is clear: decide what is stable enough for Canon, then only later slice implementation.
+- One issue = one branch = one PR; PR linked to #20; PR not merged by the assistant.
 
 Notes:
 - This file is phase context, not Canon.
 - Durable product truth belongs in product WIP, Canon docs, decision records, issues, or PRs as appropriate.
-- Update this file again when the project moves from WIP revision to Canon promotion or implementation slicing.
+- Update this file again when the recommendation work concludes and the project moves to Canon promotion or implementation slicing.
