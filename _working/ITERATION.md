@@ -1,76 +1,89 @@
-RA-0003__POC_V1_Technical_Recommendations.v2_traceability
+RA-0004__Product_Docs_Structure_for_Issue_21
 
-Work Area: Research / technical recommendations / documentation synthesis
-Tech Area: RoadAhead POC V1, interactive web route emulator, direction applicability, route geometry provider feasibility, prepared event store, enforcement profile, threshold tuning strategy
+Work Area: Documentation / governance
+Tech Area: RoadAhead product documentation structure (status layers: WIP / Research / Canon / ADR), area-based Canon taxonomy, Cursor / AI work rules
 
 Scope:
-- All five Issue #20 Research recommendation documents are complete and merged.
-- This follow-up step links the five merged recommendation docs from the main POC V1 WIP spec by reference (traceability / incorporation PR).
-- Keep all output as WIP / Research, not Canon.
-- Preserve unresolved technical/research questions as open items; recommendations are inputs, not Canon resolutions.
+- Define the RoadAhead product documentation structure and rules for future Cursor / AI-assisted work, before Issue #21 starts promoting any stable POC V1 WIP decisions to Canon.
+- Add a documentation-governance map at docs/product/README.md.
+- Add an area-based Canon taxonomy and Canon area document template at docs/product/areas/README.md.
+- Optionally add a short signpost README at docs/product/wip/README.md.
+- Optionally update this iteration descriptor (this file) for the #21 documentation-structure step only.
+- Suggest an Issue #21 Canon promotion tracker structure (per area) without editing the issue itself.
+- Keep all output as documentation governance, not Canon, not Research, not WIP product truth.
 
 Explicit non-scope:
-- No code implementation.
-- No app/viewer code changes (inspect only as useful background).
-- No Android overlay work.
-- No route provider integration.
-- No Canon promotion.
-- No ADR / decision record creation.
-- No implementation issue creation.
-- No implementation slicing.
-- No committing raw Datakam/OpenSpeedcam or private GPS/location data.
-- No treating Datakam/OpenSpeedcam or any external source as verified truth.
-- No claim of legal speed-limit correctness.
-- No turning RoadAhead into a navigator or anti-radar.
+- No Canon content promotion.
+- No ADRs / decision records created.
+- No edits to the WIP spec or any of the five Issue #20 recommendation docs (unless required to fix a broken link, which is not expected here).
+- No code changes.
+- No new dependencies.
+- No raw or external data committed.
+- No empty area folders created.
+- No area Canon docs created.
+- No edits to Issue #21 itself.
+- No PR merge by the assistant.
+- No closing of Issue #21.
 
-Current product framing (unchanged):
+Current product framing (unchanged from RA-0003):
 - RoadAhead is an anticipatory road-understanding assistant.
 - RoadAhead is not a navigator and not an anti-radar.
-- POC V1 validates the three-circle UI and event/urgency behavior before Android overlay work.
-- The first validation target is an interactive web route emulator.
-- Route providers may supply route geometry only; provider speed, ETA, and traffic speed are not RoadAhead speed truth.
-- Simulated speed in the emulator is manually controlled.
-- External road-event data is candidate input only.
+- POC V1 validates the three-circle UI and event/urgency behavior in an interactive web route emulator before Android overlay work.
 - Datakam/OpenSpeedcam candidate events are not verified product truth.
-- Direction applicability must be route/path-based, not pure nearest-point lookup.
+- Direction applicability is route/path-based, not pure nearest-point lookup.
+- Tuning values and safety-sensitive UX rules require validation evidence before Canon promotion.
 
-Input artifacts:
-- docs/product/wip/roadahead-poc-v1-three-circle-assistant.md (main WIP spec, wins over workbook on conflict)
-- docs/product/wip/roadahead-poc-v1-initial-product-decisions-workbook.md (rationale/input history)
-- docs/research/datakam-speedcam-format-and-route-qa.md
-- docs/research/datakam-manual-visual-validation.md
-- docs/research/datakam-manual-qa-status-semantics.md
-- docs/research/datakam-road-bump-direction-semantics.md
-- web/datakam-viewer/ (background only; existing direction display / DIRTYPE / DIRECTION semantics)
-- tools/datakam/ (background only; current parsing assumptions)
+Input artifacts (read-only for this iteration):
+- CLAUDE.md (stable AI / Cursor operating rules).
+- AGENTS.md (Cursor Cloud / dev-environment instructions).
+- docs/product/wip/roadahead-poc-v1-three-circle-assistant.md (main WIP spec).
+- docs/product/wip/roadahead-poc-v1-initial-product-decisions-workbook.md (companion rationale workbook).
+- docs/research/roadahead-direction-applicability-recommendation.md
+- docs/research/roadahead-route-geometry-provider-recommendation.md
+- docs/research/roadahead-prepared-event-store-recommendation.md
+- docs/research/roadahead-enforcement-profile-recommendation.md
+- docs/research/roadahead-threshold-tuning-recommendation.md
 
 Related issue:
-- #20 — Prepare POC V1 technical recommendations for open WIP questions
+- #21 — Promote stable RoadAhead POC V1 WIP decisions to Canon / decision records.
+
+Related prior iteration:
+- RA-0003 — Issue #20 WIP traceability follow-up (complete; merged via PR #27).
 
 Order (this iteration):
-1. Read CLAUDE.md.
-2. Read this iteration descriptor.
-3. Read the main WIP spec and all five Issue #20 recommendation docs.
-4. Create branch issue/20-wip-traceability-links from fresh main.
-5. Add traceability links from the main WIP spec to the five recommendation docs.
-6. Open a small documentation-only PR linked to Issue #20. Do not merge.
-7. Do not create Canon, decision records, implementation slices, implementation issues, or code changes.
+1. Read CLAUDE.md and this iteration descriptor.
+2. Read the main WIP spec and the five Issue #20 recommendation docs.
+3. Create branch issue/21-product-docs-structure from fresh main.
+4. Add docs/product/README.md (product documentation map and status-layer rules).
+5. Add docs/product/areas/README.md (area-based Canon taxonomy, area document template, area split/merge/cross-link rules, Issue #21 promotion-tracker suggestion).
+6. Add docs/product/wip/README.md (short WIP signpost).
+7. Update this iteration descriptor for the #21 documentation-structure step.
+8. Open a small documentation-only PR linked to Issue #21. Do not merge.
 
-Definition of Done (this traceability slice):
-- docs/product/wip/roadahead-poc-v1-three-circle-assistant.md updated with:
-  - new "Technical recommendation inputs from Issue #20" subsection in Related WIP docs area;
-  - compact recommendation input notes in §4, §8.3, §9, §11.6, §14.6;
-  - updated §20.1–§20.5 noting recommendations are available (still WIP, not Canon);
-  - new §20.8 "Future review path" note;
-  - updated §24 (Related research) listing the five recommendation docs.
-- _working/ITERATION.md updated to reflect the traceability follow-up step.
+Definition of Done (this documentation-structure slice):
+- docs/product/README.md exists and explains:
+  - the four product documentation status layers (WIP / Research / Canon / ADR) plus the iteration context layer;
+  - the WIP-to-Canon promotion rule (explicit PR; cited sources; validation evidence required for tuning and safety-sensitive UX);
+  - the relationship between Canon and ADR;
+  - Cursor / AI work rules for product docs (no generic canonN.md dumps; area-based Canon; do not silently resolve conflicts; do not promote without explicit review).
+- docs/product/areas/README.md exists and:
+  - defines docs/product/areas/ as the area-based Canon home;
+  - provides an initial taxonomy (product-boundary, validation-emulator, route-geometry, event-data, event-applicability, speed-reference, feedback-and-enforcement, ui-model, tuning-and-validation), explicitly marked as initial / expected to evolve;
+  - includes a Canon area document template;
+  - documents the rules for splitting, merging, renaming, and cross-linking areas;
+  - notes the Issue #21 Canon promotion tracker categories (pending / in review / promoted / kept WIP / blocked pending validation), without editing the issue.
+- docs/product/wip/README.md exists as a short WIP signpost (added because two WIP files already live in this folder without one and a stable status signpost materially helps future contributors and Cursor agents identify the layer at a glance).
+- _working/ITERATION.md (this file) is updated to RA-0004 for the documentation-structure iteration.
 - No raw data committed.
 - No code changed.
 - No Canon docs or decision records created.
+- No empty area folders created.
+- No area Canon docs created.
 - No implementation issues created.
-- PR opened, linked to #20, not merged by the assistant.
+- PR opened, linked to #21, not merged by the assistant. Issue #21 is not closed.
 
 Notes:
 - This file is phase context, not Canon.
 - Durable product truth belongs in product WIP, Canon docs, decision records, issues, or PRs as appropriate.
-- Update this file again when the project moves to Canon promotion or implementation slicing.
+- This iteration is the structural prerequisite for Issue #21 promotion work. Subsequent iterations under #21 will evaluate stable POC V1 WIP decisions per area and propose Canon / ADR PRs accordingly. Each subsequent Canon / ADR proposal is a separate, scoped iteration.
+- Update this file again when the project moves to the first per-area Canon evaluation step under Issue #21.
