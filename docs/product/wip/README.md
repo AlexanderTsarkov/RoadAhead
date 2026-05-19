@@ -8,7 +8,7 @@ context: docs/product/wip/ — working product specs, hypotheses, open questions
 # RoadAhead Product WIP — signpost
 
 > **Status — Process / Documentation governance.**
-> This file is a short signpost for `docs/product/wip/`. It is **not** Canon, **not** an implementation plan, and does **not** itself contain any product truth.
+> This file is **authoritative for documentation structure and workflow** under `docs/product/wip/` (status semantics, conflict rules, linking expectations). It is **not Product Canon** and **does not define RoadAhead product behavior**. It is **not** an implementation plan and does **not** itself contain any product truth.
 
 ## What this folder is
 

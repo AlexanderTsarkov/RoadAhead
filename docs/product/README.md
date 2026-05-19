@@ -8,7 +8,7 @@ context: RoadAhead product documentation status layers and Cursor / AI work rule
 # RoadAhead product documentation — map and governance
 
 > **Status — Process / Documentation governance.**
-> This file defines the documentation structure and rules under `docs/product/` and how WIP, Research, Canon, and decision records relate. It is **not** Canon by itself, and it does **not** promote any product content to Canon. Canon promotion is a separate, deliberate review.
+> This file is **authoritative for documentation structure and workflow** under `docs/product/` and for how WIP, Research, Canon, and decision records relate. It is **not Product Canon** and **does not define RoadAhead product behavior**. It does **not** promote any product content to Canon — Canon promotion is a separate, deliberate review.
 
 ## Purpose
 
@@ -23,7 +23,7 @@ The product itself is described in the WIP spec, research, and (eventually) Cano
 
 ## Status layers
 
-RoadAhead product documentation is organized by **status**, not by feature. Each layer has a different meaning, a different durability, and a different change process.
+At the top level, RoadAhead product documentation is organized by **status layer** — not by feature. Within the Product Canon layer, stable product truth is then organized by **product area** (see [`areas/README.md`](areas/README.md)). Each status layer has a different meaning, a different durability, and a different change process.
 
 | Layer | Location | Meaning |
 |---|---|---|
@@ -110,7 +110,7 @@ This PR does **not** edit Issue #21 itself. Updating the tracker on Issue #21 is
 
 ## What this file is not
 
-- It is **not** Canon. It defines how Canon is built; it does not state any product truth.
+- It is **not Product Canon** and does **not** define RoadAhead product behavior. It defines how Canon is built; it does not state any product truth.
 - It is **not** an implementation plan. No code changes are implied.
 - It is **not** a complete final taxonomy. The initial area taxonomy in [`areas/README.md`](areas/README.md) is expected to evolve as the product is understood better.
 

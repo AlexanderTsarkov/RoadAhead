@@ -8,7 +8,7 @@ context: docs/product/areas/ — stable product truth organized by area
 # RoadAhead Product Canon — areas
 
 > **Status — Process / Documentation governance.**
-> This file defines how `docs/product/areas/` is organized and what a Canon area document looks like. It is **not** Canon by itself, and it does **not** promote any product content to Canon. No area Canon docs are created by this PR.
+> This file is **authoritative for documentation structure and workflow** under `docs/product/areas/` — including the area taxonomy, the area split / merge / cross-link rules, and the Canon area document template. It is **not Product Canon** and **does not define RoadAhead product behavior**. It does **not** promote any product content to Canon, and no area Canon docs are created by this PR.
 
 ## Purpose
 
@@ -195,7 +195,10 @@ omit the section.
 ## Source traceability
 
 Links to the WIP, Research, Issue, and PR sources that justify each Canon truth above.
-A truth without a source link is suspicious.
+**This section is mandatory** so that every Canon truth has a citable origin. A Canon
+truth without a source link is suspicious. If the area genuinely has no immediate
+external sources to cite, write "None at this time" and add one short sentence
+explaining why no source is recorded yet — do not omit the section.
 
 ## Related areas
 
@@ -206,8 +209,9 @@ duplicate.** If a concept lives primarily in another area, link it; do not resta
 Rules for using the template:
 
 - **`Canon truths`** must be short, stable, and implementation-facing. Long narrative belongs in the WIP spec or in an ADR.
-- **`Still WIP / not Canon`** must be present and must explicitly prevent unresolved tuning, research, or open questions from being mistaken for stable truth.
-- **`Source traceability`** must link to WIP, Research, Issues, and PRs. Do not write "see WIP spec" without a link.
+- **`Still WIP / not Canon`** is **mandatory for every Canon area doc.** It must explicitly prevent unresolved tuning, research, or open questions from being mistaken for stable truth. **The section must not be omitted**, even when nothing in the area is currently WIP or unresolved — in that case, write `None at this time` so reviewers can see the area was considered.
+- **`Source traceability`** is **mandatory for every Canon area doc.** It must link to the WIP, Research, Issue, and PR sources that justify the Canon truths above; do not write "see WIP spec" without a link. **The section must not be omitted**, even when an area has no immediate external sources to cite — in that case, write `None at this time` and add one short sentence explaining why no source is recorded yet.
+- Neither `Still WIP / not Canon` nor `Source traceability` may be omitted or left blank. "None at this time" is the correct empty-state text.
 - **`Related areas`** must cross-link, not duplicate content. Duplication causes silent drift between areas.
 - The frontmatter `area` field must match the folder name `<area-id>`.
 - The frontmatter `last_reviewed` field is a date; refresh it whenever Canon for the area is materially re-reviewed (not on every typo fix).
@@ -225,7 +229,7 @@ These are explicitly **out of scope for this PR** and are listed as future work,
 
 ## What this file is not
 
-- It is **not** Canon. It defines how Canon areas are organized; it does not state any product truth.
+- It is **not Product Canon** and does **not** define RoadAhead product behavior. It defines how Canon areas are organized; it does not state any product truth.
 - It is **not** an implementation plan.
 - It is **not** a final taxonomy. The taxonomy will evolve as Canon truths emerge.
 
