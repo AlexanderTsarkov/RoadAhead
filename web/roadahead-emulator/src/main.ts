@@ -1,6 +1,6 @@
 /**
  * RoadAhead Phase 0 — Web Route Emulator
- * Slice 3 / Issue #46: first minimal vertical slice
+ * Slice 4.1 / Issue #49: route projection baseline
  *
  * Wires together synthetic fixtures, emulator logic, and a minimal UI.
  *
@@ -67,7 +67,7 @@ function buildApp(): void {
     <header>
       <h1>RoadAhead Phase 0 — Web Route Emulator</h1>
       <p class="subtitle">
-        Phase 0 validation emulator · Slice 3 — first minimal vertical slice ·
+        Phase 0 validation emulator · Slice 4.1 — route projection baseline ·
         not the final delivery surface
       </p>
     </header>
@@ -141,7 +141,8 @@ function buildApp(): void {
           <li>Raw Datakam / OpenSpeedcam data is <strong>import / source material only</strong>.</li>
           <li>Route providers may supply <strong>geometry only</strong>; provider non-geometry signals are not RoadAhead truth.</li>
           <li><strong>No numeric tuning value is Product Canon</strong> at this stage.</li>
-          <li>Event applicability logic in this slice is <strong>simplified for the straight synthetic fixture only</strong>.</li>
+          <li>Projection values shown in the debug panel are <strong>per-session derived data only</strong> — not persisted to base fixture files.</li>
+          <li>Direction compatibility, branch/ramp/parallel-carriageway ambiguity handling are <strong>deferred to later Slice 4 child issues</strong>.</li>
         </ul>
         <p class="authority-note">
           <strong>Product Canon is the primary authority.</strong>
@@ -211,9 +212,9 @@ function adjustSpeed(delta: number): void {
 // Render cycle
 //
 // NOTE: renderThreeCircles and renderDebugPanel are kept as flat functions in
-// this file for Slice 3 simplicity. If the UI grows significantly in later
-// slices, consider extracting them to dedicated rendering modules under
-// src/ui/. Do not refactor now.
+// this file for simplicity. If the UI grows significantly in later slices,
+// consider extracting them to dedicated rendering modules under src/ui/.
+// Do not refactor now.
 // ---------------------------------------------------------------------------
 
 function render(): void {
@@ -252,8 +253,6 @@ function renderThreeCircles(state: SimulationState): void {
     secondary?.target_speed_kmh != null
       ? String(secondary.target_speed_kmh)
       : "–";
-  // Secondary is the next event inside the simplified candidate window —
-  // not the global next event on the route. Full secondary semantics are WIP.
   const secondarySubLabel =
     secondary != null ? `next in window: ${secondary.event_id}` : "–";
 
@@ -297,22 +296,34 @@ function renderDebugPanel(state: SimulationState): void {
   if (!section) return;
 
   const { minLon, maxLon } = getRouteLonSpan(SYNTHETIC_ROUTE);
-  const routeLenM =
-    (maxLon - minLon) *
-    (111_320 * Math.cos((55.75 * Math.PI) / 180));
+  const vp = state.vehicleRoutePosition;
   const provenance = SYNTHETIC_ROUTE.provenance;
+
+  // Build a map from event_id → projection record for the event table
+  const projMap = new Map(
+    state.eventProjections.map((p) => [p.event_id, p])
+  );
 
   const eventRows = state.eventSelection.records
     .map((r) => {
+      const proj = projMap.get(r.event_id);
       const distStr =
         r.distance_m >= 0
           ? `+${r.distance_m.toFixed(0)} m`
           : `${r.distance_m.toFixed(0)} m`;
+      const alongStr = proj
+        ? `${proj.projection.best.along_route_m.toFixed(0)} m`
+        : "–";
+      const crossStr = proj
+        ? `${proj.projection.best.cross_track_m.toFixed(1)} m`
+        : "–";
       return `<tr class="event-row-${r.status}">
         <td><code>${escapeHtml(r.event_id)}</code></td>
         <td>${escapeHtml(r.normalized_type)}</td>
         <td>${r.target_speed_kmh != null ? r.target_speed_kmh : "–"}</td>
         <td class="dist-cell">${distStr}</td>
+        <td class="dist-cell proj-derived">${alongStr}</td>
+        <td class="dist-cell proj-derived">${crossStr}</td>
         <td><span class="event-status event-status-${r.status}">${r.status}</span></td>
         <td class="reason-cell">${escapeHtml(r.reason)}</td>
       </tr>`;
@@ -335,9 +346,10 @@ function renderDebugPanel(state: SimulationState): void {
 
     <div class="debug-warning">
       ⚠ All numeric thresholds shown below are <strong>WIP emulator defaults — NOT Product Canon</strong>.
-      Event selection logic is <strong>simplified for the straight synthetic fixture only</strong>
-      (longitude ordering; no full projection, no direction compatibility, no branch/ramp handling).
-      Full applicability is deferred to Slice 4.
+      Projection values are <strong>per-session derived data</strong> — not persisted to base fixture files.
+      (event-applicability Canon truth 13; event-data Canon truth 11)
+      Direction compatibility, branch/ramp/parallel-carriageway ambiguity handling are deferred to
+      later Slice 4 child issues.
     </div>
 
     <div class="debug-grid">
@@ -349,7 +361,9 @@ function renderDebugPanel(state: SimulationState): void {
           <dt>Generated</dt>
           <dd>${escapeHtml(provenance.generated_at)}</dd>
           <dt>Route lon span</dt>
-          <dd>${minLon.toFixed(3)}° → ${maxLon.toFixed(3)}° (≈ ${routeLenM.toFixed(0)} m, synthetic)</dd>
+          <dd>${minLon.toFixed(3)}° → ${maxLon.toFixed(3)}° (synthetic)</dd>
+          <dt>Total route length</dt>
+          <dd class="proj-derived">${vp.total_route_length_m.toFixed(0)} m <span class="wip-inline">(arc-length, per-session)</span></dd>
           <dt>Notes</dt>
           <dd class="notes-cell">${escapeHtml(provenance.notes ?? "–")}</dd>
           <dt>Total events loaded</dt>
@@ -362,10 +376,24 @@ function renderDebugPanel(state: SimulationState): void {
         <dl class="debug-dl">
           <dt>Route progress</dt>
           <dd>${(state.progress * 100).toFixed(1)}%</dd>
-          <dt>Vehicle longitude <span class="wip-inline">(simplified interpolation)</span></dt>
+          <dt>Vehicle longitude <span class="wip-inline">(projection-derived)</span></dt>
           <dd>${state.vehicleLon.toFixed(5)}°</dd>
           <dt>Current speed</dt>
           <dd>${state.speedKmh} km/h (manual — no provider speed)</dd>
+        </dl>
+      </div>
+
+      <div class="debug-block">
+        <h3>Vehicle Route Position <span class="wip-inline proj-derived-label">per-session derived</span></h3>
+        <dl class="debug-dl">
+          <dt>Along-route distance</dt>
+          <dd class="proj-derived">${vp.along_route_m.toFixed(0)} m from route start</dd>
+          <dt>Total route length</dt>
+          <dd class="proj-derived">${vp.total_route_length_m.toFixed(0)} m</dd>
+          <dt>Segment index</dt>
+          <dd class="proj-derived">${vp.segment_index} (0-based)</dd>
+          <dt>Projected lon / lat</dt>
+          <dd class="proj-derived">${vp.projected_lon.toFixed(5)}° / ${vp.projected_lat.toFixed(5)}°</dd>
         </dl>
       </div>
 
@@ -389,19 +417,21 @@ function renderDebugPanel(state: SimulationState): void {
     <div class="debug-block debug-block-full">
       <h3>
         Event Selection
-        <span class="wip-inline">speed_limit scope · simplified longitude ordering · Slice 3</span>
+        <span class="wip-inline">speed_limit scope · projection-derived distance · Slice 4.1</span>
       </h3>
       <p class="debug-note">
-        Ahead/behind determined by longitude sign for the east-bound straight route only.
+        Ahead/behind determined by <strong>projection-derived along-route distance</strong>
+        (replaces Slice 3 longitude-only shortcut).
         Lookahead guardrails: speed_limit min <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.speed_limit.min_display_distance_m} m</strong> /
         max <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.speed_limit.max_lookahead_m} m</strong>
         (WIP defaults — not Canon).
-        <strong>too_far / too_close</strong> are simplified Slice 3 debug statuses based on the WIP
+        <strong>too_far / too_close</strong> are simplified Slice 4.1 debug statuses based on the WIP
         min/max display window — not final driver-facing event-applicability semantics and not a
         general product rule. Future urgency and applicability behavior may revise how events in
         these zones are treated.
-        Full route projection, direction compatibility matrix, and branch/ramp handling are
-        deferred to Slice 4 (event-applicability Canon truths 1, 2, 10).
+        <strong>Along-route</strong> and <strong>Cross-track</strong> columns are
+        <em class="proj-derived-label">per-session derived debug values</em> — not persisted to fixtures.
+        Direction compatibility is deferred to a later Slice 4 child issue.
         <strong>secondary</strong> = next event inside the simplified window only, not global next event on route.
       </p>
       <div class="table-scroll">
@@ -411,7 +441,9 @@ function renderDebugPanel(state: SimulationState): void {
               <th>Event ID</th>
               <th>Type</th>
               <th>Target km/h</th>
-              <th>Distance</th>
+              <th>Signed distance</th>
+              <th class="proj-derived-label">Along-route (m) ⊕</th>
+              <th class="proj-derived-label">Cross-track (m) ⊕</th>
               <th>Status</th>
               <th>Reason</th>
             </tr>
@@ -421,6 +453,7 @@ function renderDebugPanel(state: SimulationState): void {
           </tbody>
         </table>
       </div>
+      <p class="debug-note-small">⊕ per-session derived projection values — not persisted to base fixture files (event-applicability Canon truth 13)</p>
     </div>
 
     <div class="debug-block debug-block-full">

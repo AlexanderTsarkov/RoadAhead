@@ -1,8 +1,8 @@
 /**
- * Simulation state — Phase 0 emulator (Slice 3 / Issue #46)
+ * Simulation state — Phase 0 emulator (Slice 4.1 / Issue #49)
  *
  * Computes the full per-tick simulation state from user inputs and fixtures.
- * Ties together route progress, event selection, and speed reference.
+ * Ties together route projection, event selection, and speed reference.
  *
  * This module is the single integration point for the emulator logic.
  * It is called on every user input change (slider, speed controls) and
@@ -10,6 +10,15 @@
  *
  * No derived fields are written back to the source fixtures.
  * (event-data Canon truth 11; event-applicability Canon truth 13)
+ *
+ * What changed in Slice 4.1 vs Slice 3:
+ *   - Vehicle position is now computed via arc-length projection
+ *     (computeVehicleRoutePosition) instead of longitude interpolation
+ *     (progressToLon). vehicleLon is derived from vehicleRoutePosition.
+ *   - Per-event projection records (eventProjections) are computed and
+ *     stored in SimulationState for the debug panel.
+ *   - selectEvents receives VehicleRoutePosition + EventProjectionRecord[]
+ *     instead of vehicleLon, so ahead/behind is projection-derived.
  *
  * Canon authority:
  *   docs/product/areas/route-geometry/route-geometry.md
@@ -24,7 +33,12 @@
 import type { RouteGeometry } from "../contracts/routeGeometry.js";
 import type { PreparedEvent } from "../contracts/preparedEvent.js";
 import type { EmulatorTuningConfig } from "../contracts/tuningConfig.js";
-import { progressToLon } from "./routeProgress.js";
+import {
+  computeVehicleRoutePosition,
+  projectEventsToRoute,
+  type VehicleRoutePosition,
+  type EventProjectionRecord,
+} from "./routeProjection.js";
 import {
   selectEvents,
   type EventSelectionResult,
@@ -54,11 +68,22 @@ export interface SimulationState {
    */
   speedKmh: number;
   /**
-   * Vehicle longitude derived from progress via simplified longitude
-   * interpolation. Valid only for the straight east-bound synthetic fixture.
-   * SIMPLIFIED SYNTHETIC-ROUTE LOGIC.
+   * Vehicle longitude derived from route projection.
+   * Equals vehicleRoutePosition.projected_lon; kept for UI display convenience.
    */
   vehicleLon: number;
+  /**
+   * Vehicle position along the route, computed via cumulative arc-length
+   * interpolation. Replaces the Slice 3 longitude-only progressToLon shortcut.
+   * Per-session derived — not persisted.
+   */
+  vehicleRoutePosition: VehicleRoutePosition;
+  /**
+   * Per-event projection records derived from route geometry and event coords.
+   * Per-session derived — MUST NOT be persisted to base fixtures.
+   * (event-applicability Canon truth 13; event-data Canon truth 11)
+   */
+  eventProjections: EventProjectionRecord[];
   /** Event selection result (primary, secondary, and per-event debug records). */
   eventSelection: EventSelectionResult;
   /**
@@ -79,9 +104,8 @@ export interface SimulationState {
  * Called on every user input change. Produces an immutable state snapshot.
  * Never modifies the route, events, or config arguments.
  *
- * SIMPLIFIED SYNTHETIC-ROUTE LOGIC: vehicle position derived from longitude
- * interpolation along the straight east-bound route. Full geospatial
- * projection is deferred to Slice 4.
+ * Slice 4.1 change: vehicle position and event ahead/behind determination
+ * are now projection-derived (arc-length based) rather than longitude-only.
  *
  * @param progress - Route progress in [0, 1] (from slider).
  * @param speedKmh - Current simulated speed in km/h (from speed controls).
@@ -97,14 +121,17 @@ export function computeSimulationState(
   events: PreparedEvent[],
   config: EmulatorTuningConfig
 ): SimulationState {
-  const vehicleLon = progressToLon(progress, route);
-  const eventSelection = selectEvents(vehicleLon, events, config);
+  const vehicleRoutePosition = computeVehicleRoutePosition(progress, route);
+  const eventProjections = projectEventsToRoute(events, route, vehicleRoutePosition);
+  const eventSelection = selectEvents(events, eventProjections, config);
   const speedReference = computeSpeedReference(eventSelection.primary);
 
   return {
     progress,
     speedKmh,
-    vehicleLon,
+    vehicleLon: vehicleRoutePosition.projected_lon,
+    vehicleRoutePosition,
+    eventProjections,
     eventSelection,
     speedReference,
   };
