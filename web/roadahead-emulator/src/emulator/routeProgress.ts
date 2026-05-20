@@ -1,23 +1,34 @@
 /**
  * Route progress utilities — Phase 0 emulator (Slice 3 / Issue #46)
  *
- * SIMPLIFIED SYNTHETIC-ROUTE LOGIC
- * This module uses longitude interpolation only. It is valid ONLY for the
- * straight east-bound synthetic fixture from routeGeometry.synthetic.ts.
- * Full geospatial projection (cross-track distance, segment index lookup,
- * real curve handling) is NOT implemented here and is explicitly deferred
- * to Slice 4 (Event applicability foundation).
+ * LEGACY / SIMPLE FALLBACK MODULE
  *
- * Do not use this module for real routes, curved routes, or north/south
- * routes. The simplification is intentional and documented for the emulator
- * validation purpose only.
+ * As of Slice 4.1 (Issue #49), the core emulator pipeline uses
+ * routeProjection.ts for vehicle position and event distance computation.
+ * This module is retained for display helpers (getRouteLonSpan) used in
+ * main.ts. The functions below are legacy utilities from the Slice 3
+ * longitude-only approach:
+ *
+ *   progressToLon    — no longer used by simulationState.ts (replaced by
+ *                       computeVehicleRoutePosition in routeProjection.ts).
+ *   lonToProgress    — longitude-to-progress inverse; not used by core logic.
+ *   signedDistanceAlongRouteM — longitude-only distance; no longer used by
+ *                       minimalEventSelection.ts (replaced by projection-
+ *                       derived signed_distance_m).
+ *   SYNTHETIC_ROUTE_REFERENCE_LAT — no longer used by core logic.
+ *
+ *   getRouteLonSpan  — still used by main.ts for route info display.
+ *   lonDegToMetresPerDeg — kept as a utility; not used by core logic.
+ *
+ * These functions are valid ONLY for straight east-bound synthetic fixtures.
+ * Do not use for real routes, curved routes, or north/south routes.
  *
  * Canon authority:
  *   docs/product/areas/route-geometry/route-geometry.md
  *   docs/product/areas/event-applicability/event-applicability.md (truth 13:
  *     route-specific derived fields are not persisted onto base event records)
  *
- * NOT Canon: this simplified logic is a WIP implementation for Slice 3.
+ * NOT Canon: this simplified logic is a legacy WIP implementation from Slice 3.
  */
 
 import type { RouteGeometry } from "../contracts/routeGeometry.js";

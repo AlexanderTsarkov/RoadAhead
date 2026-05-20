@@ -1,6 +1,6 @@
 /* ─────────────────────────────────────────────────────────────────────────
    RoadAhead Phase 0 — Web Route Emulator
-   Slice 3 / Issue #46: first minimal vertical slice
+   Slice 4.1 / Issue #49: route projection baseline
    WIP styling — not the final design. Colors, layout, and visual treatment
    are not Product Canon and will change in future slices.
    ───────────────────────────────────────────────────────────────────────── */
@@ -533,6 +533,25 @@ code {
   overflow-x: auto;
   color: #333;
   white-space: pre;
+}
+
+/* ── Projection-derived debug values ────────────────────────────────────── */
+
+.proj-derived {
+  color: #0055aa;
+}
+
+.proj-derived-label {
+  color: #0055aa;
+  font-style: italic;
+  font-size: 0.82em;
+}
+
+.debug-note-small {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  color: #0055aa;
+  font-style: italic;
 }
 
 /* ── Canon guardrails section ────────────────────────────────────────────── */
