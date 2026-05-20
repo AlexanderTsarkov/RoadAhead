@@ -43,14 +43,22 @@ import {
 /**
  * Status of an event relative to the current vehicle position.
  *
- * used in the debug panel (event-applicability Canon truth 12).
+ * Used in the debug panel (event-applicability Canon truth 12).
+ *
+ * "too_far" and "too_close" are Slice 3 simplified debug statuses derived
+ * from the WIP lookahead guardrails in EmulatorTuningConfig. They are NOT
+ * final product-applicability semantics and NOT Product Canon. They mean
+ * "outside the simplified Slice 3 display window" — not that the event is
+ * globally useless or should always be hidden. Future urgency, applicability,
+ * and hysteresis behavior (Slice 4+) may revise how events in these zones
+ * are treated. (tuning-and-validation Canon truths 1, 2)
  */
 export type EventStatus =
   | "behind" // event is behind the vehicle (negative distance)
-  | "too_far" // event is ahead but beyond max_lookahead_m guardrail (WIP default)
-  | "too_close" // event is ahead but within min_display_distance_m guardrail (WIP default)
-  | "candidate" // event is ahead and within window, but not selected as primary
-  | "selected" // event is the selected primary applicable event
+  | "too_far" // ahead but beyond WIP max_lookahead_m (Slice 3 simplified window only)
+  | "too_close" // ahead but inside WIP min_display_distance_m (Slice 3 simplified window only)
+  | "candidate" // ahead and within the simplified window; not selected as primary
+  | "selected" // selected primary applicable event
   | "out_of_scope"; // event type not processed in this slice (non speed_limit)
 
 /**
@@ -78,7 +86,15 @@ export interface EventSelectionRecord {
 export interface EventSelectionResult {
   /** The selected primary applicable event, or null if none. */
   primary: PreparedEvent | null;
-  /** The next candidate event after primary, or null if none. */
+  /**
+   * The next event inside the simplified Slice 3 candidate window, or null.
+   *
+   * NOTE: this is the next event that qualifies within the same simplified
+   * lookahead window as the primary — NOT the global next event on the route.
+   * Events outside the window (too_far, too_close, behind) are excluded.
+   * Full secondary-context semantics, ordering, and driver-facing eligibility
+   * are WIP and will be defined in later slices.
+   */
   secondary: PreparedEvent | null;
   /** Per-event debug records (all events, not just selected). */
   records: EventSelectionRecord[];
@@ -98,11 +114,14 @@ export interface EventSelectionResult {
  *  2. speed_limit events with negative distance → status: behind (suppressed).
  *  3. speed_limit events with distance > max_lookahead_m → status: too_far.
  *     (WIP default from EmulatorTuningConfig.lookahead.speed_limit.max_lookahead_m)
- *  4. speed_limit events with distance < min_display_distance_m → status: too_close.
+ *  4. speed_limit events with 0 < distance < min_display_distance_m → status: too_close.
+ *     (WIP Slice 3 simplified minimum window; not a general product rule that
+ *     close events are always hidden. Future slices may revise this.)
  *     (WIP default from EmulatorTuningConfig.lookahead.speed_limit.min_display_distance_m)
  *  5. Remaining speed_limit events → status: candidate.
  *  6. Candidates sorted ascending by distance. First → selected (primary).
- *     Second → candidate (secondary context).
+ *     Second → candidate (secondary context, within the same simplified window;
+ *     NOT the global next event on the route — full secondary semantics are WIP).
  *
  * SIMPLIFIED SYNTHETIC-ROUTE LOGIC: ahead/behind uses longitude ordering only.
  * Full route projection, direction compatibility, and ambiguity handling are
@@ -169,7 +188,7 @@ export function selectEvents(
         target_speed_kmh: event.target_speed_kmh,
         distance_m: distanceM,
         status: "too_close",
-        reason: `${distanceM.toFixed(0)} m ahead — within min display distance ${guardrails.min_display_distance_m} m (WIP default, not Canon).`,
+        reason: `${distanceM.toFixed(0)} m ahead — inside Slice 3 simplified min window (< ${guardrails.min_display_distance_m} m). WIP Slice 3 simplification only; not a general product rule that close events are always hidden. Future urgency/applicability behavior may revise this. (WIP default, not Canon)`,
       });
     } else {
       records.push({

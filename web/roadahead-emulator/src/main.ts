@@ -209,6 +209,11 @@ function adjustSpeed(delta: number): void {
 
 // ---------------------------------------------------------------------------
 // Render cycle
+//
+// NOTE: renderThreeCircles and renderDebugPanel are kept as flat functions in
+// this file for Slice 3 simplicity. If the UI grows significantly in later
+// slices, consider extracting them to dedicated rendering modules under
+// src/ui/. Do not refactor now.
 // ---------------------------------------------------------------------------
 
 function render(): void {
@@ -247,8 +252,10 @@ function renderThreeCircles(state: SimulationState): void {
     secondary?.target_speed_kmh != null
       ? String(secondary.target_speed_kmh)
       : "–";
+  // Secondary is the next event inside the simplified candidate window —
+  // not the global next event on the route. Full secondary semantics are WIP.
   const secondarySubLabel =
-    secondary != null ? `next: ${secondary.event_id}` : "–";
+    secondary != null ? `next in window: ${secondary.event_id}` : "–";
 
   const primaryActiveClass =
     refState === "approach_target" ? "circle-state-active" : "circle-state-inactive";
@@ -264,7 +271,7 @@ function renderThreeCircles(state: SimulationState): void {
       <div class="circle-label">primary event<br><span class="circle-sublabel">${escapeHtml(primarySubLabel)}</span></div>
     </div>
 
-    <div class="circle circle-secondary" title="Secondary context — next candidate event or placeholder">
+    <div class="circle circle-secondary" title="Secondary context — next event inside simplified candidate window (not global next event; full secondary semantics are WIP)">
       <div class="circle-value">${secondarySpeedText}</div>
       <div class="circle-label">secondary<br><span class="circle-sublabel">${escapeHtml(secondarySubLabel)}</span></div>
     </div>
@@ -389,8 +396,13 @@ function renderDebugPanel(state: SimulationState): void {
         Lookahead guardrails: speed_limit min <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.speed_limit.min_display_distance_m} m</strong> /
         max <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.speed_limit.max_lookahead_m} m</strong>
         (WIP defaults — not Canon).
+        <strong>too_far / too_close</strong> are simplified Slice 3 debug statuses based on the WIP
+        min/max display window — not final driver-facing event-applicability semantics and not a
+        general product rule. Future urgency and applicability behavior may revise how events in
+        these zones are treated.
         Full route projection, direction compatibility matrix, and branch/ramp handling are
         deferred to Slice 4 (event-applicability Canon truths 1, 2, 10).
+        <strong>secondary</strong> = next event inside the simplified window only, not global next event on route.
       </p>
       <div class="table-scroll">
         <table class="event-table">

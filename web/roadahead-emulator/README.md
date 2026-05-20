@@ -233,6 +233,25 @@ represent regulatory advice. `legal_claim` is always `false`.
     (event-applicability Canon truth 12; validation-emulator Canon truth 7)
   - Active tuning config subset (WIP defaults labeled NOT Canon).
 
+### Slice 3 limitations and simplification notes
+
+- **`too_close` and `too_far` are simplified Slice 3 debug statuses**, not final
+  driver-facing event-applicability semantics. They reflect whether an event
+  falls inside the WIP min/max lookahead window from `EmulatorTuningConfig`.
+  They are **not** a general product rule that events at those distances are
+  always hidden or always irrelevant. Future urgency, hysteresis, and
+  applicability behavior (Slice 4+) may revise how events in those zones
+  are treated. (tuning-and-validation Canon truths 1, 2)
+
+- **`secondary` is the next event inside the same simplified candidate window**,
+  not the global next event on the route. Events outside the window (too_far,
+  too_close, behind) are excluded from secondary. Full secondary-context
+  semantics are WIP and will be defined in later slices.
+
+- **Lookahead logic is simplified for the straight synthetic fixture only.**
+  Ahead/behind uses longitude ordering. No full geospatial projection. No
+  direction compatibility. No branch/ramp handling.
+
 ### Slice 3 non-goals
 
 The following are explicitly **not implemented** in Slice 3:
