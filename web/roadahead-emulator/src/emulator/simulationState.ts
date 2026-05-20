@@ -1,8 +1,11 @@
 /**
- * Simulation state — Phase 0 emulator (Slice 4.1 / Issue #49)
+ * Simulation state — Phase 0 emulator
+ * (Slice 4.1 / Issue #49 — route projection baseline;
+ *  Slice 4.2 / Issue #51 — direction compatibility integration)
  *
  * Computes the full per-tick simulation state from user inputs and fixtures.
- * Ties together route projection, event selection, and speed reference.
+ * Ties together route projection, direction compatibility, event selection,
+ * and speed reference.
  *
  * This module is the single integration point for the emulator logic.
  * It is called on every user input change (slider, speed controls) and
@@ -10,6 +13,13 @@
  *
  * No derived fields are written back to the source fixtures.
  * (event-data Canon truth 11; event-applicability Canon truth 13)
+ *
+ * What changed in Slice 4.2 vs Slice 4.1:
+ *   - Per-event direction compatibility records (directionCompatibility) are
+ *     now computed and stored in SimulationState via
+ *     computeDirectionCompatibilityRecords.
+ *   - selectEvents now receives directionCompatibilityRecords so that events
+ *     with status "incompatible" are suppressed (direction_conflict status).
  *
  * What changed in Slice 4.1 vs Slice 3:
  *   - Vehicle position is now computed via arc-length projection
@@ -43,6 +53,10 @@ import {
   selectEvents,
   type EventSelectionResult,
 } from "./minimalEventSelection.js";
+import {
+  computeDirectionCompatibilityRecords,
+  type DirectionCompatibilityRecord,
+} from "./directionCompatibility.js";
 import {
   computeSpeedReference,
   type SpeedReferenceContext,
@@ -84,6 +98,15 @@ export interface SimulationState {
    * (event-applicability Canon truth 13; event-data Canon truth 11)
    */
   eventProjections: EventProjectionRecord[];
+  /**
+   * Per-event direction compatibility records (Slice 4.2 / Issue #51).
+   * Computed from route geometry and source direction candidate metadata.
+   * Per-session derived — MUST NOT be persisted to base fixtures.
+   * Source direction fields are candidate metadata, not verified truth.
+   * (event-applicability Canon truth 13; event-data Canon truth 11;
+   *  event-applicability Canon truth 8)
+   */
+  directionCompatibility: DirectionCompatibilityRecord[];
   /** Event selection result (primary, secondary, and per-event debug records). */
   eventSelection: EventSelectionResult;
   /**
@@ -123,7 +146,18 @@ export function computeSimulationState(
 ): SimulationState {
   const vehicleRoutePosition = computeVehicleRoutePosition(progress, route);
   const eventProjections = projectEventsToRoute(events, route, vehicleRoutePosition);
-  const eventSelection = selectEvents(events, eventProjections, config);
+  const directionCompatibility = computeDirectionCompatibilityRecords(
+    events,
+    eventProjections,
+    route,
+    config.direction_applicability
+  );
+  const eventSelection = selectEvents(
+    events,
+    eventProjections,
+    directionCompatibility,
+    config
+  );
   const speedReference = computeSpeedReference(eventSelection.primary);
 
   return {
@@ -132,6 +166,7 @@ export function computeSimulationState(
     vehicleLon: vehicleRoutePosition.projected_lon,
     vehicleRoutePosition,
     eventProjections,
+    directionCompatibility,
     eventSelection,
     speedReference,
   };

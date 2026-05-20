@@ -1,6 +1,7 @@
 /**
  * RoadAhead Phase 0 — Web Route Emulator
  * Slice 4.1 / Issue #49: route projection baseline
+ * Slice 4.2 / Issue #51: direction compatibility baseline
  *
  * Wires together synthetic fixtures, emulator logic, and a minimal UI.
  *
@@ -67,7 +68,7 @@ function buildApp(): void {
     <header>
       <h1>RoadAhead Phase 0 — Web Route Emulator</h1>
       <p class="subtitle">
-        Phase 0 validation emulator · Slice 4.1 — route projection baseline ·
+        Phase 0 validation emulator · Slice 4.2 — direction compatibility baseline ·
         not the final delivery surface
       </p>
     </header>
@@ -85,7 +86,7 @@ function buildApp(): void {
         <h2>Simulation Controls</h2>
         <p class="controls-note">
           Synthetic straight east-bound route · lon ${minLon.toFixed(3)}° → ${maxLon.toFixed(3)}° ·
-          2 synthetic speed_limit events · no real GPS
+          3 synthetic speed_limit events · no real GPS
         </p>
         <div class="control-row">
           <label for="progress-slider" class="control-label">Route Progress</label>
@@ -141,8 +142,9 @@ function buildApp(): void {
           <li>Raw Datakam / OpenSpeedcam data is <strong>import / source material only</strong>.</li>
           <li>Route providers may supply <strong>geometry only</strong>; provider non-geometry signals are not RoadAhead truth.</li>
           <li><strong>No numeric tuning value is Product Canon</strong> at this stage.</li>
-          <li>Projection values shown in the debug panel are <strong>per-session derived data only</strong> — not persisted to base fixture files.</li>
-          <li>Direction compatibility, branch/ramp/parallel-carriageway ambiguity handling are <strong>deferred to later Slice 4 child issues</strong>.</li>
+          <li>Projection values and direction compatibility values shown in the debug panel are <strong>per-session derived data only</strong> — not persisted to base fixture files.</li>
+          <li>Direction compatibility shown is a <strong>WIP baseline (Slice 4.2)</strong> — candidate semantics only. Branch/ramp/parallel-carriageway ambiguity handling is deferred to later child issues.</li>
+          <li>Source direction fields (<code>source_direction_deg</code>, <code>source_dirtype</code>) are <strong>candidate metadata only</strong> — not verified truth. (event-applicability Canon truth 8)</li>
         </ul>
         <p class="authority-note">
           <strong>Product Canon is the primary authority.</strong>
@@ -299,14 +301,19 @@ function renderDebugPanel(state: SimulationState): void {
   const vp = state.vehicleRoutePosition;
   const provenance = SYNTHETIC_ROUTE.provenance;
 
-  // Build a map from event_id → projection record for the event table
+  // Build lookup maps for the event table
   const projMap = new Map(
     state.eventProjections.map((p) => [p.event_id, p])
+  );
+  const dirCompatMap = new Map(
+    state.directionCompatibility.map((r) => [r.event_id, r])
   );
 
   const eventRows = state.eventSelection.records
     .map((r) => {
       const proj = projMap.get(r.event_id);
+      const dc = dirCompatMap.get(r.event_id);
+
       const distStr =
         r.distance_m >= 0
           ? `+${r.distance_m.toFixed(0)} m`
@@ -317,6 +324,26 @@ function renderDebugPanel(state: SimulationState): void {
       const crossStr = proj
         ? `${proj.projection.best.cross_track_m.toFixed(1)} m`
         : "–";
+
+      // Direction compatibility columns (per-session derived, Slice 4.2)
+      const tangentStr =
+        dc?.route_tangent_deg != null
+          ? `${dc.route_tangent_deg.toFixed(1)}°`
+          : "–";
+      const srcDirStr =
+        dc?.source_direction_deg != null
+          ? `${dc.source_direction_deg}°`
+          : "–";
+      const srcDirtypeStr =
+        dc?.source_dirtype != null ? String(dc.source_dirtype) : "–";
+      const deltaStr =
+        dc?.direction_delta_deg != null
+          ? `${dc.direction_delta_deg.toFixed(1)}°`
+          : "–";
+      const dcStatus = dc?.status ?? "–";
+      const dcStatusClass =
+        dc != null ? `dir-compat-${dc.status}` : "dir-compat-unknown";
+
       return `<tr class="event-row-${r.status}">
         <td><code>${escapeHtml(r.event_id)}</code></td>
         <td>${escapeHtml(r.normalized_type)}</td>
@@ -324,6 +351,10 @@ function renderDebugPanel(state: SimulationState): void {
         <td class="dist-cell">${distStr}</td>
         <td class="dist-cell proj-derived">${alongStr}</td>
         <td class="dist-cell proj-derived">${crossStr}</td>
+        <td class="dist-cell dir-derived">${tangentStr}</td>
+        <td class="dist-cell dir-derived">${srcDirStr}<br><span class="dirtype-label">dirtype=${srcDirtypeStr}</span></td>
+        <td class="dist-cell dir-derived">${deltaStr}</td>
+        <td class="dir-derived"><span class="dir-compat-badge ${dcStatusClass}">${escapeHtml(dcStatus)}</span></td>
         <td><span class="event-status event-status-${r.status}">${r.status}</span></td>
         <td class="reason-cell">${escapeHtml(r.reason)}</td>
       </tr>`;
@@ -332,6 +363,11 @@ function renderDebugPanel(state: SimulationState): void {
 
   const configSubset = {
     speed_limit_lookahead_WIP: EMULATOR_TUNING_DEFAULTS.lookahead.speed_limit,
+    direction_applicability_WIP: {
+      direction_delta_accept_deg: EMULATOR_TUNING_DEFAULTS.direction_applicability.direction_delta_accept_deg,
+      direction_delta_reject_above_deg: EMULATOR_TUNING_DEFAULTS.direction_applicability.direction_delta_reject_above_deg,
+      approach_window_m: EMULATOR_TUNING_DEFAULTS.direction_applicability.approach_window_m,
+    },
     enforcement_profile_WIP: {
       profile_id: EMULATOR_TUNING_DEFAULTS.enforcement_profile.profile_id,
       label: EMULATOR_TUNING_DEFAULTS.enforcement_profile.label,
@@ -346,10 +382,12 @@ function renderDebugPanel(state: SimulationState): void {
 
     <div class="debug-warning">
       ⚠ All numeric thresholds shown below are <strong>WIP emulator defaults — NOT Product Canon</strong>.
-      Projection values are <strong>per-session derived data</strong> — not persisted to base fixture files.
-      (event-applicability Canon truth 13; event-data Canon truth 11)
-      Direction compatibility, branch/ramp/parallel-carriageway ambiguity handling are deferred to
-      later Slice 4 child issues.
+      Projection and direction compatibility values are <strong>per-session derived data</strong> —
+      not persisted to base fixture files. (event-applicability Canon truth 13; event-data Canon truth 11)
+      Source direction fields are <strong>candidate metadata only, not verified truth</strong>.
+      (event-applicability Canon truth 8)
+      Direction compatibility shown is a WIP baseline (Slice 4.2) — candidate semantics, not Canon.
+      Branch/ramp/parallel-carriageway ambiguity handling is deferred to later child issues.
     </div>
 
     <div class="debug-grid">
@@ -417,21 +455,17 @@ function renderDebugPanel(state: SimulationState): void {
     <div class="debug-block debug-block-full">
       <h3>
         Event Selection
-        <span class="wip-inline">speed_limit scope · projection-derived distance · Slice 4.1</span>
+        <span class="wip-inline">speed_limit scope · projection-derived distance · direction compat · Slice 4.2</span>
       </h3>
       <p class="debug-note">
-        Ahead/behind determined by <strong>projection-derived along-route distance</strong>
-        (replaces Slice 3 longitude-only shortcut).
+        Ahead/behind determined by <strong>projection-derived along-route distance</strong>.
         Lookahead guardrails: speed_limit min <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.speed_limit.min_display_distance_m} m</strong> /
         max <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.speed_limit.max_lookahead_m} m</strong>
         (WIP defaults — not Canon).
-        <strong>too_far / too_close</strong> are simplified Slice 4.1 debug statuses based on the WIP
-        min/max display window — not final driver-facing event-applicability semantics and not a
-        general product rule. Future urgency and applicability behavior may revise how events in
-        these zones are treated.
-        <strong>Along-route</strong> and <strong>Cross-track</strong> columns are
-        <em class="proj-derived-label">per-session derived debug values</em> — not persisted to fixtures.
-        Direction compatibility is deferred to a later Slice 4 child issue.
+        <strong>direction_conflict</strong> = within window but direction incompatible; suppressed from driver-facing selection.
+        Direction compatibility columns (⟳) are <em class="dir-derived-label">per-session derived debug data</em> —
+        source direction is candidate metadata only, not verified truth. WIP baseline semantics — not Canon.
+        <strong>Along-route / Cross-track</strong> (⊕) are per-session derived projection values — not persisted to fixtures.
         <strong>secondary</strong> = next event inside the simplified window only, not global next event on route.
       </p>
       <div class="table-scroll">
@@ -442,8 +476,12 @@ function renderDebugPanel(state: SimulationState): void {
               <th>Type</th>
               <th>Target km/h</th>
               <th>Signed distance</th>
-              <th class="proj-derived-label">Along-route (m) ⊕</th>
-              <th class="proj-derived-label">Cross-track (m) ⊕</th>
+              <th class="proj-derived-label">Along-route ⊕</th>
+              <th class="proj-derived-label">Cross-track ⊕</th>
+              <th class="dir-derived-label">Tangent ⟳</th>
+              <th class="dir-derived-label">Src dir ⟳</th>
+              <th class="dir-derived-label">Delta ⟳</th>
+              <th class="dir-derived-label">Dir compat ⟳</th>
               <th>Status</th>
               <th>Reason</th>
             </tr>
@@ -453,7 +491,11 @@ function renderDebugPanel(state: SimulationState): void {
           </tbody>
         </table>
       </div>
-      <p class="debug-note-small">⊕ per-session derived projection values — not persisted to base fixture files (event-applicability Canon truth 13)</p>
+      <p class="debug-note-small">
+        ⊕ per-session derived projection values — not persisted to base fixture files (event-applicability Canon truth 13)
+        <br>⟳ per-session derived direction compatibility values — source direction is candidate metadata, not verified truth
+        (event-applicability Canon truth 8; Slice 4.2 WIP — not Canon)
+      </p>
     </div>
 
     <div class="debug-block debug-block-full">
