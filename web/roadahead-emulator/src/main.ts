@@ -3,13 +3,15 @@
  * Slice 4.1 / Issue #49: route projection baseline
  * Slice 4.2 / Issue #51: direction compatibility baseline
  * Slice 4.3 / Issue #53: applicability suppression reason model
+ * Slice 4.4 / Issue #55: debug accepted / suppressed view
  *
  * Wires together synthetic fixtures, emulator logic, and a minimal UI.
  *
- * RESEARCH AND VALIDATION TOOL ONLY.
+ * EMULATOR DEBUG / QA UI — NOT THE DRIVER-FACING UI.
  * Not the final delivery surface. Not a navigator. Not an anti-radar.
  * Not a legal speed-limit authority. Not safety-certified.
  * All numeric values shown are WIP emulator defaults — not Product Canon.
+ * Reason / status names used in the debug panel are WIP / not Product Canon.
  *
  * No provider API, no network calls, no user account required.
  * Uses synthetic fixtures only (Slice 2 / Issue #44).
@@ -26,6 +28,7 @@ import {
   type SimulationState,
 } from "./emulator/simulationState.js";
 import { getRouteLonSpan } from "./emulator/routeProgress.js";
+import type { EventSelectionRecord } from "./emulator/minimalEventSelection.js";
 
 // ---------------------------------------------------------------------------
 // Mutable simulation inputs (user-controlled)
@@ -40,6 +43,26 @@ let routeProgressPct = 0;
  * (validation-emulator Canon truth 6)
  */
 let currentSpeedKmh = 60;
+
+// ---------------------------------------------------------------------------
+// Debug filter state
+//
+// Controls which event groups are visible in the debug table.
+// This filter affects debug table visibility only — it does NOT change event
+// selection behavior. Accepted/suppressed grouping is based on
+// applicabilityReason.kind and applicabilityReason.is_driver_facing_eligible.
+//
+// "all"             — show all events regardless of kind
+// "accepted"        — show only applicabilityReason.kind === "accepted"
+// "suppressed"      — show only applicabilityReason.kind === "suppressed"
+// "not_driver_facing" — show all where is_driver_facing_eligible === false
+//                       (covers suppressed + not_processed)
+//
+// WIP — NOT Product Canon. Filter state is local to this emulator session.
+// ---------------------------------------------------------------------------
+
+type DebugFilterMode = "all" | "accepted" | "suppressed" | "not_driver_facing";
+let debugFilter: DebugFilterMode = "all";
 
 // ---------------------------------------------------------------------------
 // State computation
@@ -69,16 +92,17 @@ function buildApp(): void {
     <header>
       <h1>RoadAhead Phase 0 — Web Route Emulator</h1>
       <p class="subtitle">
-        Phase 0 validation emulator · Slice 4.3 — applicability suppression reason model ·
-        not the final delivery surface
+        Phase 0 validation emulator · Slice 4.4 — debug accepted / suppressed view ·
+        emulator debug / QA UI only — not the driver-facing UI · not final UX design
       </p>
     </header>
 
     <main>
       <section class="wip-notice">
-        <strong>Research &amp; validation tool only.</strong>
+        <strong>Emulator debug / QA tool only — NOT the driver-facing UI.</strong>
         Not a navigator. Not an anti-radar. Not a legal speed-limit authority.
         Not safety-certified. All numeric values are WIP emulator defaults, not Product Canon.
+        Reason / status names shown in the debug panel are WIP / not Product Canon.
         Uses <strong>synthetic fixtures only</strong> — no Yandex API, no provider, no network,
         no account required.
       </section>
@@ -146,12 +170,13 @@ function buildApp(): void {
           <li>Projection values and direction compatibility values shown in the debug panel are <strong>per-session derived data only</strong> — not persisted to base fixture files.</li>
           <li>Direction compatibility shown is a <strong>WIP baseline (Slice 4.2)</strong> — candidate semantics only. Branch/ramp/parallel-carriageway ambiguity handling is deferred to later child issues.</li>
           <li>Applicability reason codes (Slice 4.3) are <strong>per-session derived WIP debug data, not Product Canon</strong>. Full reason taxonomy is deferred to later child issues under Issue #48.</li>
+          <li>The debug accepted/suppressed grouping (Slice 4.4) reflects the simplified Slices 4.1–4.3 baseline only — <strong>debug visibility does not imply driver-facing eligibility</strong>.</li>
           <li>Source direction fields (<code>source_direction_deg</code>, <code>source_dirtype</code>) are <strong>candidate metadata only</strong> — not verified truth. (event-applicability Canon truth 8)</li>
         </ul>
         <p class="authority-note">
           <strong>Product Canon is the primary authority.</strong>
           See <code>docs/product/areas/</code> in the repository.
-          This emulator is a WIP validation tool.
+          This emulator is a WIP validation / QA tool.
         </p>
       </section>
     </main>
@@ -292,9 +317,212 @@ function renderThreeCircles(state: SimulationState): void {
 }
 
 // ---------------------------------------------------------------------------
+// Debug panel event table helpers
+//
+// EMULATOR DEBUG / QA UI — NOT THE DRIVER-FACING UI.
+// buildEventRow and buildGroupRows are used only by renderDebugPanel.
+// The grouping and filtering logic (accepted / suppressed / not_driver_facing)
+// reflects the simplified Slices 4.1–4.3 baseline only.
+// Debug visibility does NOT imply driver-facing eligibility.
+// Reason / status / kind names are WIP / not Product Canon.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a single <tr> for the debug event table.
+ *
+ * Uses inline fields from EventSelectionRecord (projection_along_route_m,
+ * projection_cross_track_m, directionCompatibility) rather than separate
+ * lookup maps. Values are identical to the state lookup maps — derived from
+ * the same projection pass.
+ *
+ * EMULATOR DEBUG / QA ONLY — not driver-facing output.
+ * Per-session derived data — not persisted to base fixture files.
+ * (event-applicability Canon truth 13; event-data Canon truth 11)
+ */
+function buildEventRow(r: EventSelectionRecord): string {
+  const distStr =
+    r.distance_m >= 0
+      ? `+${r.distance_m.toFixed(0)} m`
+      : `${r.distance_m.toFixed(0)} m`;
+
+  const alongStr = `${r.projection_along_route_m.toFixed(0)} m`;
+  const crossStr = `${r.projection_cross_track_m.toFixed(1)} m`;
+
+  const dc = r.directionCompatibility;
+  const tangentStr =
+    dc?.route_tangent_deg != null
+      ? `${dc.route_tangent_deg.toFixed(1)}°`
+      : "–";
+  const srcDirStr =
+    dc?.source_direction_deg != null
+      ? `${dc.source_direction_deg}°`
+      : "–";
+  const srcDirtypeStr =
+    dc?.source_dirtype != null ? String(dc.source_dirtype) : "–";
+  const deltaStr =
+    dc?.direction_delta_deg != null
+      ? `${dc.direction_delta_deg.toFixed(1)}°`
+      : "–";
+  const dcStatus = dc?.status ?? "–";
+  const dcStatusClass =
+    dc != null ? `dir-compat-${dc.status}` : "dir-compat-unknown";
+
+  const ar = r.applicabilityReason;
+  const arKindClass = `ar-kind-${ar.kind}`;
+  const arEligibleClass = ar.is_driver_facing_eligible
+    ? "ar-eligible-yes"
+    : "ar-eligible-no";
+  // "⚠ debug only" makes non-driver-facing status explicit at a glance.
+  const arEligibleText = ar.is_driver_facing_eligible
+    ? "driver ✓"
+    : "⚠ debug only";
+
+  // Add debug-only-row class to rows that are not eligible for driver-facing.
+  // This provides a secondary visual cue in addition to the group separator.
+  const debugRowClass = !ar.is_driver_facing_eligible ? " debug-only-row" : "";
+
+  return `<tr class="event-row-${r.status}${debugRowClass}">
+    <td><code>${escapeHtml(r.event_id)}</code></td>
+    <td>${escapeHtml(r.normalized_type)}</td>
+    <td>${r.target_speed_kmh != null ? r.target_speed_kmh : "–"}</td>
+    <td class="dist-cell">${distStr}</td>
+    <td class="dist-cell proj-derived">${alongStr}</td>
+    <td class="dist-cell proj-derived">${crossStr}</td>
+    <td class="dist-cell dir-derived">${tangentStr}</td>
+    <td class="dist-cell dir-derived">${srcDirStr}<br><span class="dirtype-label">dirtype=${srcDirtypeStr}</span></td>
+    <td class="dist-cell dir-derived">${deltaStr}</td>
+    <td class="dir-derived"><span class="dir-compat-badge ${dcStatusClass}">${escapeHtml(dcStatus)}</span></td>
+    <td><span class="event-status event-status-${r.status}">${r.status}</span></td>
+    <td class="reason-code-cell">
+      <span class="ar-kind ${arKindClass}">${escapeHtml(ar.kind)}</span>
+      <span class="ar-eligible ${arEligibleClass}">${arEligibleText}</span><br>
+      <span class="ar-code">${escapeHtml(ar.code)}</span>
+    </td>
+    <td class="reason-cell" title="${escapeHtml(r.reason)}">${escapeHtml(r.reason)}</td>
+  </tr>`;
+}
+
+/**
+ * Build the group separator <tr> + all event rows for one reason-kind group.
+ *
+ * Returns empty string if the group has no records (keeps the table clean
+ * when filtering leaves a group empty).
+ *
+ * EMULATOR DEBUG / QA ONLY — not driver-facing.
+ * Group semantics reflect the Slices 4.1–4.3 WIP baseline only — not Canon.
+ */
+function buildGroupRows(
+  kind: "accepted" | "suppressed" | "not_processed",
+  records: EventSelectionRecord[]
+): string {
+  if (records.length === 0) return "";
+
+  const CONFIG: Record<
+    "accepted" | "suppressed" | "not_processed",
+    { label: string; note: string; headerClass: string }
+  > = {
+    accepted: {
+      label: "✓ Accepted — driver-facing eligible",
+      note: "May appear in the driver-facing three-circle display (selected_primary / accepted_candidate)",
+      headerClass: "group-header-accepted",
+    },
+    suppressed: {
+      label: "⊘ Suppressed — debug / QA only · NOT driver-facing",
+      note:
+        "Visible in debug; suppressed from driver-facing selection " +
+        "(event-applicability Canon truth 12; ui-model Canon truth 13). " +
+        "Debug visibility does NOT imply driver-facing eligibility.",
+      headerClass: "group-header-suppressed",
+    },
+    not_processed: {
+      label: "○ Not processed — out of scope for this slice",
+      note:
+        "Event type not processed in current slice (non-speed_limit). " +
+        "Not in selection scope. Not driver-facing.",
+      headerClass: "group-header-not-processed",
+    },
+  };
+
+  const { label, note, headerClass } = CONFIG[kind];
+  const count = records.length;
+
+  const separatorRow = `<tr class="group-header-row">
+    <td colspan="13" class="group-header-cell ${headerClass}">
+      ${label} · ${count} event${count !== 1 ? "s" : ""}
+      <span class="group-header-note">${note}</span>
+    </td>
+  </tr>`;
+
+  return separatorRow + records.map(buildEventRow).join("");
+}
+
+/**
+ * Build the filter control bar HTML.
+ * Buttons are tagged with data-filter attributes; listeners are attached
+ * separately by attachDebugFilterListeners after innerHTML is set.
+ */
+function buildFilterBar(
+  total: number,
+  acceptedCount: number,
+  suppressedCount: number,
+  notDFCount: number
+): string {
+  const btn = (f: DebugFilterMode, label: string): string => {
+    const activeClass = debugFilter === f ? " filter-btn-active" : "";
+    return `<button class="filter-btn${activeClass}" data-filter="${f}" type="button">${escapeHtml(label)}</button>`;
+  };
+
+  return `<div class="debug-filter-bar">
+    <span class="filter-label">Show events:</span>
+    ${btn("all", `All (${total})`)}
+    ${btn("accepted", `Accepted (${acceptedCount})`)}
+    ${btn("suppressed", `Suppressed (${suppressedCount})`)}
+    ${btn("not_driver_facing", `Not driver-facing (${notDFCount})`)}
+    <span class="filter-note">Filter affects debug table only — not event selection behavior</span>
+  </div>`;
+}
+
+/**
+ * Attach click listeners to the filter buttons inside the debug section.
+ * Must be called after section.innerHTML is set (buttons are freshly created).
+ * Sets the module-level debugFilter and triggers a re-render.
+ */
+function attachDebugFilterListeners(section: HTMLElement): void {
+  section
+    .querySelectorAll<HTMLButtonElement>(".filter-btn[data-filter]")
+    .forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const f = btn.dataset["filter"] as DebugFilterMode | undefined;
+        if (f) {
+          debugFilter = f;
+          render();
+        }
+      });
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Debug panel
 // ---------------------------------------------------------------------------
 
+/**
+ * Render the debug / QA panel.
+ *
+ * EMULATOR DEBUG / QA UI — NOT THE DRIVER-FACING UI.
+ * Not final UX design. Not a navigator. Not an anti-radar.
+ * Reason / status / kind names are WIP / not Product Canon.
+ *
+ * Slice 4.4 additions vs Slice 4.3:
+ *   - Records separated into accepted / suppressed / not_processed groups
+ *     with visual group separator rows.
+ *   - Filter bar (all / accepted / suppressed / not_driver_facing) controls
+ *     table visibility without affecting event selection behavior.
+ *   - buildEventRow extracted to reduce inline duplication.
+ *   - ".debug-only-row" class applied to non-driver-facing rows as secondary
+ *     visual indicator.
+ *   - ar.eligible text changed from "debug" to "⚠ debug only" for clarity.
+ *   - ar-kind badge placed before ar-code in the reason code cell.
+ */
 function renderDebugPanel(state: SimulationState): void {
   const section = document.getElementById("debug-section");
   if (!section) return;
@@ -303,77 +531,44 @@ function renderDebugPanel(state: SimulationState): void {
   const vp = state.vehicleRoutePosition;
   const provenance = SYNTHETIC_ROUTE.provenance;
 
-  // Build lookup maps for the event table
-  const projMap = new Map(
-    state.eventProjections.map((p) => [p.event_id, p])
+  // Separate records into reason-kind groups.
+  // Uses applicabilityReason.kind from Slice 4.3 / Issue #53.
+  const allRecords = state.eventSelection.records;
+  const acceptedRecords = allRecords.filter(
+    (r) => r.applicabilityReason.kind === "accepted"
   );
-  const dirCompatMap = new Map(
-    state.directionCompatibility.map((r) => [r.event_id, r])
+  const suppressedRecords = allRecords.filter(
+    (r) => r.applicabilityReason.kind === "suppressed"
+  );
+  const notProcessedRecords = allRecords.filter(
+    (r) => r.applicabilityReason.kind === "not_processed"
+  );
+  const notDFRecords = allRecords.filter(
+    (r) => !r.applicabilityReason.is_driver_facing_eligible
   );
 
-  const eventRows = state.eventSelection.records
-    .map((r) => {
-      const proj = projMap.get(r.event_id);
-      const dc = dirCompatMap.get(r.event_id);
+  // Build table body based on current filter.
+  // Filter affects table visibility only — selection behavior is unchanged.
+  let tableBodyHtml: string;
+  if (debugFilter === "accepted") {
+    tableBodyHtml = buildGroupRows("accepted", acceptedRecords);
+  } else if (debugFilter === "suppressed") {
+    tableBodyHtml = buildGroupRows("suppressed", suppressedRecords);
+  } else if (debugFilter === "not_driver_facing") {
+    tableBodyHtml =
+      buildGroupRows("suppressed", suppressedRecords) +
+      buildGroupRows("not_processed", notProcessedRecords);
+  } else {
+    // "all" — show all groups with separators
+    tableBodyHtml =
+      buildGroupRows("accepted", acceptedRecords) +
+      buildGroupRows("suppressed", suppressedRecords) +
+      buildGroupRows("not_processed", notProcessedRecords);
+  }
 
-      const distStr =
-        r.distance_m >= 0
-          ? `+${r.distance_m.toFixed(0)} m`
-          : `${r.distance_m.toFixed(0)} m`;
-      const alongStr = proj
-        ? `${proj.projection.best.along_route_m.toFixed(0)} m`
-        : "–";
-      const crossStr = proj
-        ? `${proj.projection.best.cross_track_m.toFixed(1)} m`
-        : "–";
-
-      // Direction compatibility columns (per-session derived, Slice 4.2)
-      const tangentStr =
-        dc?.route_tangent_deg != null
-          ? `${dc.route_tangent_deg.toFixed(1)}°`
-          : "–";
-      const srcDirStr =
-        dc?.source_direction_deg != null
-          ? `${dc.source_direction_deg}°`
-          : "–";
-      const srcDirtypeStr =
-        dc?.source_dirtype != null ? String(dc.source_dirtype) : "–";
-      const deltaStr =
-        dc?.direction_delta_deg != null
-          ? `${dc.direction_delta_deg.toFixed(1)}°`
-          : "–";
-      const dcStatus = dc?.status ?? "–";
-      const dcStatusClass =
-        dc != null ? `dir-compat-${dc.status}` : "dir-compat-unknown";
-
-      const ar = r.applicabilityReason;
-      const arKindClass = `ar-kind-${ar.kind}`;
-      const arEligibleClass = ar.is_driver_facing_eligible
-        ? "ar-eligible-yes"
-        : "ar-eligible-no";
-      const arEligibleText = ar.is_driver_facing_eligible ? "driver✓" : "debug";
-
-      return `<tr class="event-row-${r.status}">
-        <td><code>${escapeHtml(r.event_id)}</code></td>
-        <td>${escapeHtml(r.normalized_type)}</td>
-        <td>${r.target_speed_kmh != null ? r.target_speed_kmh : "–"}</td>
-        <td class="dist-cell">${distStr}</td>
-        <td class="dist-cell proj-derived">${alongStr}</td>
-        <td class="dist-cell proj-derived">${crossStr}</td>
-        <td class="dist-cell dir-derived">${tangentStr}</td>
-        <td class="dist-cell dir-derived">${srcDirStr}<br><span class="dirtype-label">dirtype=${srcDirtypeStr}</span></td>
-        <td class="dist-cell dir-derived">${deltaStr}</td>
-        <td class="dir-derived"><span class="dir-compat-badge ${dcStatusClass}">${escapeHtml(dcStatus)}</span></td>
-        <td><span class="event-status event-status-${r.status}">${r.status}</span></td>
-        <td class="reason-code-cell">
-          <span class="ar-code">${escapeHtml(ar.code)}</span><br>
-          <span class="ar-kind ${arKindClass}">${escapeHtml(ar.kind)}</span>
-          <span class="ar-eligible ${arEligibleClass}">${arEligibleText}</span>
-        </td>
-        <td class="reason-cell">${escapeHtml(r.reason)}</td>
-      </tr>`;
-    })
-    .join("");
+  if (tableBodyHtml === "") {
+    tableBodyHtml = `<tr><td colspan="13" class="table-empty-msg">No events match the current filter.</td></tr>`;
+  }
 
   const configSubset = {
     speed_limit_lookahead_WIP: EMULATOR_TUNING_DEFAULTS.lookahead.speed_limit,
@@ -392,7 +587,7 @@ function renderDebugPanel(state: SimulationState): void {
   };
 
   section.innerHTML = `
-    <h2>Debug Panel</h2>
+    <h2>Debug Panel <span class="wip-badge">Emulator QA only — not driver-facing UI</span></h2>
 
     <div class="debug-warning">
       ⚠ All numeric thresholds shown below are <strong>WIP emulator defaults — NOT Product Canon</strong>.
@@ -405,6 +600,7 @@ function renderDebugPanel(state: SimulationState): void {
       <strong>Reason code column</strong> is a WIP structured suppression/acceptance reason model (Slice 4.3 / Issue #53) —
       codes, kind values, and is_driver_facing_eligible reflect the simplified Slices 4.1–4.3 baseline only.
       Full taxonomy is deferred to later child issues under Issue #48.
+      <strong>Debug visibility does NOT imply driver-facing eligibility.</strong>
     </div>
 
     <div class="debug-grid">
@@ -472,7 +668,7 @@ function renderDebugPanel(state: SimulationState): void {
     <div class="debug-block debug-block-full">
       <h3>
         Event Selection
-        <span class="wip-inline">speed_limit scope · projection-derived distance · direction compat · Slice 4.3</span>
+        <span class="wip-inline">speed_limit scope · projection-derived distance · direction compat · Slices 4.1–4.4</span>
       </h3>
       <p class="debug-note">
         Ahead/behind determined by <strong>projection-derived along-route distance</strong>.
@@ -485,8 +681,18 @@ function renderDebugPanel(state: SimulationState): void {
         <strong>Along-route / Cross-track</strong> (⊕) are per-session derived projection values — not persisted to fixtures.
         <strong>secondary</strong> = next event inside the simplified window only, not global next event on route.
         <strong>Reason code</strong> (✦) is per-session derived structured reason data — WIP Slices 4.1–4.3 baseline, not Canon.
-        Codes include kind (accepted / suppressed / not_processed) and driver-facing eligibility per this baseline.
+        Hover over the Reason cell for the full reason text.
+        <strong>Debug-only rows</strong> (marked ⚠ debug only) must not appear driver-facing.
+        (ui-model Canon truth 13; event-applicability Canon truth 12)
       </p>
+
+      ${buildFilterBar(
+        allRecords.length,
+        acceptedRecords.length,
+        suppressedRecords.length,
+        notDFRecords.length
+      )}
+
       <div class="table-scroll">
         <table class="event-table">
           <thead>
@@ -507,7 +713,7 @@ function renderDebugPanel(state: SimulationState): void {
             </tr>
           </thead>
           <tbody>
-            ${eventRows}
+            ${tableBodyHtml}
           </tbody>
         </table>
       </div>
@@ -518,6 +724,8 @@ function renderDebugPanel(state: SimulationState): void {
         <br>✦ per-session derived structured reason code — WIP suppression/acceptance reason model (Slice 4.3 / Issue #53);
         codes, kind, and is_driver_facing_eligible reflect Slices 4.1–4.3 baseline only — NOT Product Canon;
         full taxonomy deferred to later child issues under Issue #48
+        <br>⚠ debug only — NOT driver-facing eligible; visible in debug / QA; suppressed from driver-facing selection
+        (ui-model Canon truth 13; event-applicability Canon truth 12)
       </p>
     </div>
 
@@ -526,6 +734,9 @@ function renderDebugPanel(state: SimulationState): void {
       <pre class="debug-pre">${escapeHtml(JSON.stringify(configSubset, null, 2))}</pre>
     </div>
   `;
+
+  // Attach filter button listeners after innerHTML is set.
+  attachDebugFilterListeners(section);
 }
 
 // ---------------------------------------------------------------------------
