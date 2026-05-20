@@ -52,11 +52,12 @@ static SPA.
 
 ### Scenario sweep
 
-`npm run scenario:sweep` compiles the scenario harness (into an untracked
-`dist-scripts/` directory) and runs 8 synthetic scenarios against the
-existing emulator domain logic (`computeSimulationState`). It prints
-expected-vs-actual pass/fail for each check and exits non-zero if any
-scenario fails.
+`npm run scenario:sweep` compiles the scenario runner using
+`tsconfig.scripts.json` (a Node.js-only TypeScript config that excludes
+browser entry code) into an untracked `dist-scripts/` directory, then runs
+8 synthetic scenarios against existing emulator domain logic
+(`computeSimulationState`). It prints expected-vs-actual pass/fail for each
+check and exits non-zero if any scenario fails.
 
 The sweep does **not** use a browser, Playwright, Cypress, or any browser
 automation. It does not require Yandex API, any provider, network, or user
