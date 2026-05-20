@@ -130,7 +130,7 @@ committed. No provider-derived geometry is committed.
 
 | File | Description |
 |---|---|
-| `src/fixtures/preparedEvents.synthetic.ts` | Two synthetic `speed_limit` candidate events placed on the synthetic route. Source: `synthetic_fixture`. No Datakam / OpenSpeedcam rows. No route-specific derived fields. |
+| `src/fixtures/preparedEvents.synthetic.ts` | Six synthetic candidate events: three original `speed_limit` events (Slices 2 / 4.2) plus three Slice 4.5 additions — `direction_unsupported` fixture, `static_camera` out-of-scope fixture, and off-route cross-track debug fixture. Source: `synthetic_fixture`. No Datakam / OpenSpeedcam rows. No route-specific derived fields. |
 | `src/fixtures/routeGeometry.synthetic.ts` | Synthetic straight east-bound GeoJSON `LineString` test segment (6 waypoints). Provider: `synthetic_fixture`. Longitude-first `[lon, lat]` coordinates. Not provider-derived. |
 
 Both fixture files are exported as typed TypeScript modules. The route

@@ -4,6 +4,7 @@
  * Slice 4.2 / Issue #51: direction compatibility baseline
  * Slice 4.3 / Issue #53: applicability suppression reason model
  * Slice 4.4 / Issue #55: debug accepted / suppressed view
+ * Slice 4.5 / Issue #57: synthetic applicability fixture cases
  *
  * Wires together synthetic fixtures, emulator logic, and a minimal UI.
  *
@@ -92,7 +93,7 @@ function buildApp(): void {
     <header>
       <h1>RoadAhead Phase 0 — Web Route Emulator</h1>
       <p class="subtitle">
-        Phase 0 validation emulator · Slice 4.4 — debug accepted / suppressed view ·
+        Phase 0 validation emulator · Slice 4.5 — synthetic applicability fixture cases ·
         emulator debug / QA UI only — not the driver-facing UI · not final UX design
       </p>
     </header>
@@ -111,7 +112,7 @@ function buildApp(): void {
         <h2>Simulation Controls</h2>
         <p class="controls-note">
           Synthetic straight east-bound route · lon ${minLon.toFixed(3)}° → ${maxLon.toFixed(3)}° ·
-          3 synthetic speed_limit events · no real GPS
+          ${SYNTHETIC_PREPARED_EVENTS.length} synthetic events (speed_limit + static_camera) · no real GPS
         </p>
         <div class="control-row">
           <label for="progress-slider" class="control-label">Route Progress</label>
@@ -618,7 +619,7 @@ function renderDebugPanel(state: SimulationState): void {
           <dt>Notes</dt>
           <dd class="notes-cell">${escapeHtml(provenance.notes ?? "–")}</dd>
           <dt>Total events loaded</dt>
-          <dd>${SYNTHETIC_PREPARED_EVENTS.length} (synthetic speed_limit fixtures)</dd>
+          <dd>${SYNTHETIC_PREPARED_EVENTS.length} (synthetic prepared events — speed_limit + static_camera)</dd>
         </dl>
       </div>
 
