@@ -525,10 +525,28 @@ code {
   color: #7c0097;
 }
 
-/* ── Event row highlight for direction conflict ───────────────────────────── */
+.event-status-direction_unknown {
+  background: #f5f0e8;
+  color: #7a5500;
+}
+
+.event-status-direction_unsupported {
+  background: #f0f0f0;
+  color: #666;
+}
+
+/* ── Event row highlights for direction-suppressed events ─────────────────── */
 
 .event-row-direction_conflict {
   background: #fdf5ff;
+}
+
+.event-row-direction_unknown {
+  background: #fdf8f0;
+}
+
+.event-row-direction_unsupported {
+  background: #f7f7f7;
 }
 
 /* ── Direction compatibility badges ──────────────────────────────────────── */

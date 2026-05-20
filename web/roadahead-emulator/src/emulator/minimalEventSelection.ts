@@ -4,13 +4,23 @@
  *  Slice 4.2 / Issue #51 — direction compatibility integration)
  *
  * DIRECTION COMPATIBILITY BASELINE (Slice 4.2)
- * Event selection now incorporates direction compatibility results:
- *   - Events with status "incompatible" are given status "direction_conflict"
- *     and suppressed from driver-facing selection.
- *   - Events with status "compatible" or "bidirectional" may be selected if
- *     they pass existing projection/lookahead checks.
- *   - Events with status "unknown" or "unsupported" are passed through
- *     (conservative: do not suppress, but reason is visible in debug).
+ * Event selection incorporates direction compatibility results. The mapping
+ * from DirectionCompatibilityStatus to EventStatus is:
+ *
+ *   compatible    → candidate (passes into driver-facing selection)
+ *   bidirectional → candidate (WIP: dirtype=0 treated as bidirectional;
+ *                              semantics not Canon; labeled in reason string)
+ *   incompatible  → direction_conflict   (suppressed from driver-facing selection)
+ *   unknown       → direction_unknown    (suppressed from driver-facing selection)
+ *   unsupported   → direction_unsupported (suppressed from driver-facing selection)
+ *
+ * Canon principle: when direction applicability is ambiguous or cannot be
+ * evaluated, driver-facing behavior must prefer suppression / non-claim over
+ * confident display. Suppressed candidates remain visible in emulator debug.
+ * (event-applicability Canon truth 12; ui-model Canon truth 13)
+ *
+ * These status names are WIP / not Canon. The full suppression reason taxonomy
+ * is deferred to a later child issue under Issue #48.
  *
  * The following remain explicitly NOT implemented and are deferred to later
  * child issues under Issue #48:
@@ -57,18 +67,27 @@ import type { DirectionCompatibilityRecord } from "./directionCompatibility.js";
  * hysteresis behavior (later Slice 4 child issues) may revise how events in
  * these zones are treated. (tuning-and-validation Canon truths 1, 2)
  *
- * "direction_conflict" is added in Slice 4.2 (Issue #51): an event that is
- * within the lookahead window but whose direction compatibility is "incompatible"
- * (direction conflict). Such events are suppressed from driver-facing selection
- * and visible in debug only. (event-applicability Canon truth 12; ui-model
- * Canon truth 13; WIP candidate semantics — not Canon)
+ * Direction-related statuses added in Slice 4.2 (Issue #51). All three are
+ * suppressed from driver-facing selection and visible in emulator debug only.
+ * These status names are WIP / not Canon — the full taxonomy is deferred.
+ * (event-applicability Canon truth 12; ui-model Canon truth 13)
+ *
+ *   direction_conflict    — direction compatibility is "incompatible"; clear
+ *                           direction conflict with the route approach tangent.
+ *   direction_unknown     — direction compatibility could not be evaluated
+ *                           (missing or null source direction/dirtype). Conservative:
+ *                           when applicability is ambiguous, prefer suppression.
+ *   direction_unsupported — source dirtype value not handled by this baseline.
+ *                           Conservative: prefer suppression until extended.
  */
 export type EventStatus =
   | "behind" // event is behind the vehicle (negative along-route distance)
   | "too_far" // ahead but beyond WIP max_lookahead_m (simplified window only)
   | "too_close" // ahead but inside WIP min_display_distance_m (simplified window only)
-  | "direction_conflict" // within window but direction incompatible — suppressed (Slice 4.2)
-  | "candidate" // ahead and within the simplified window; not selected as primary
+  | "direction_conflict" // within window; direction incompatible — suppressed (Slice 4.2 WIP)
+  | "direction_unknown" // within window; direction could not be evaluated — suppressed (Slice 4.2 WIP)
+  | "direction_unsupported" // within window; dirtype not handled — suppressed (Slice 4.2 WIP)
+  | "candidate" // ahead and within window; direction compatible or bidirectional; not selected
   | "selected" // selected primary applicable event
   | "out_of_scope"; // event type not processed in this slice (non speed_limit)
 
@@ -153,14 +172,17 @@ export interface EventSelectionResult {
  *     (WIP Slice 4.1 simplified minimum window; not a general product rule that
  *     close events are always hidden. Future slices may revise this.)
  *     (WIP default from EmulatorTuningConfig.lookahead.speed_limit.min_display_distance_m)
- *  5. [NEW Slice 4.2] speed_limit events within window but with direction
- *     compatibility status "incompatible" → status: direction_conflict.
- *     Suppressed from driver-facing selection; visible in debug.
+ *  5. [Slice 4.2] speed_limit events within window; direction suppression rules:
+ *     - "incompatible"  → direction_conflict   (suppressed, debug-visible)
+ *     - "unknown"       → direction_unknown    (suppressed, debug-visible)
+ *     - "unsupported"   → direction_unsupported (suppressed, debug-visible)
+ *     Conservative: when direction applicability is ambiguous or cannot be
+ *     evaluated, prefer suppression / non-claim over driver-facing display.
  *     (event-applicability Canon truth 12; ui-model Canon truth 13; WIP)
  *  6. Remaining speed_limit events → status: candidate.
- *     Compatible, bidirectional, unknown, and unsupported direction statuses
- *     are not suppressed at this stage (conservative: unknown/unsupported are
- *     passed through; reason is visible in debug).
+ *     Only "compatible" and "bidirectional" direction statuses reach this step.
+ *     Bidirectional candidates are labeled in the reason string (WIP: dirtype=0
+ *     treated as compatible for this baseline; semantics not Canon).
  *  7. Candidates sorted ascending by distance. First → selected (primary).
  *     Second → candidate (secondary context, within the same simplified window;
  *     NOT the global next event on the route — full secondary semantics are WIP).
@@ -257,9 +279,9 @@ export function selectEvents(
         directionCompatibility: dirCompat,
       });
     } else if (dirCompat?.status === "incompatible") {
-      // Direction conflict: event is within the lookahead window but direction
-      // compatibility is incompatible. Suppress from driver-facing selection.
-      // Visible in debug only. (event-applicability Canon truth 12; Slice 4.2)
+      // Direction conflict: clear mismatch between route approach tangent and
+      // source direction candidate. Suppressed from driver-facing selection.
+      // Visible in debug only. (event-applicability Canon truth 12; Slice 4.2 WIP)
       records.push({
         event_id: event.event_id,
         normalized_type: event.normalized_type,
@@ -269,19 +291,60 @@ export function selectEvents(
         projection_cross_track_m: cross_track_m,
         status: "direction_conflict",
         reason:
-          `${distanceM.toFixed(0)} m ahead — within lookahead window but direction incompatible. ` +
-          `Suppressed from driver-facing selection. ` +
+          `${distanceM.toFixed(0)} m ahead — direction conflict. ` +
+          `Suppressed from driver-facing selection; debug-visible. ` +
+          `Direction detail: ${dirCompat.reason} ` +
+          `(WIP candidate semantics — not Canon; per-session derived debug data)`,
+        directionCompatibility: dirCompat,
+      });
+    } else if (dirCompat?.status === "unknown" || dirCompat === null) {
+      // Direction could not be evaluated (missing/null source direction or dirtype).
+      // Conservative: when direction applicability is ambiguous or cannot be
+      // determined, prefer suppression over driver-facing display.
+      // Visible in debug only. (event-applicability Canon truth 12; Slice 4.2 WIP)
+      const detail = dirCompat !== null ? dirCompat.reason : "No direction compatibility record computed.";
+      records.push({
+        event_id: event.event_id,
+        normalized_type: event.normalized_type,
+        target_speed_kmh: event.target_speed_kmh,
+        distance_m: distanceM,
+        projection_along_route_m: along_route_m,
+        projection_cross_track_m: cross_track_m,
+        status: "direction_unknown",
+        reason:
+          `${distanceM.toFixed(0)} m ahead — direction could not be evaluated. ` +
+          `Conservative: suppressed from driver-facing selection; debug-visible. ` +
+          `Direction detail: ${detail} ` +
+          `(WIP candidate semantics — not Canon; per-session derived debug data)`,
+        directionCompatibility: dirCompat,
+      });
+    } else if (dirCompat.status === "unsupported") {
+      // Source dirtype not handled by this baseline.
+      // Conservative: suppress from driver-facing selection until the baseline is
+      // extended to handle this dirtype value in a later child issue.
+      // Visible in debug only. (event-applicability Canon truth 12; Slice 4.2 WIP)
+      records.push({
+        event_id: event.event_id,
+        normalized_type: event.normalized_type,
+        target_speed_kmh: event.target_speed_kmh,
+        distance_m: distanceM,
+        projection_along_route_m: along_route_m,
+        projection_cross_track_m: cross_track_m,
+        status: "direction_unsupported",
+        reason:
+          `${distanceM.toFixed(0)} m ahead — source dirtype not supported by this baseline. ` +
+          `Conservative: suppressed from driver-facing selection; debug-visible. ` +
           `Direction detail: ${dirCompat.reason} ` +
           `(WIP candidate semantics — not Canon; per-session derived debug data)`,
         directionCompatibility: dirCompat,
       });
     } else {
-      // candidate: compatible, bidirectional, unknown, or unsupported direction
-      // statuses are not suppressed in this baseline (conservative pass-through).
+      // candidate: direction is "compatible" or "bidirectional".
+      // Only these two statuses reach driver-facing event selection.
       const dirNote =
-        dirCompat !== null
-          ? ` Direction: ${dirCompat.status}.`
-          : " No direction compatibility record.";
+        dirCompat.status === "bidirectional"
+          ? ` Direction: bidirectional (WIP — dirtype=0 treated as compatible for this baseline; semantics not Canon).`
+          : ` Direction: ${dirCompat.status}.`;
       records.push({
         event_id: event.event_id,
         normalized_type: event.normalized_type,
