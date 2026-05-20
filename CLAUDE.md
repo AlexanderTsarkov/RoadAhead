@@ -94,26 +94,61 @@ Classifier for where work lives is **Work Area**, not issue existence.
 
 ## Iteration Descriptor
 
-`_working/ITERATION.md` is the active iteration descriptor.
+`_working/ITERATION.md` is the **active sprint / phase descriptor**.
 
-It should contain:
+It exists so Cursor / AI agents can recover the current sprint context without the user restating the full project state in every prompt.
 
-- iteration ID on the first line;
-- Work Area;
-- Tech Area;
-- scope;
-- explicit non-scope;
-- relevant links;
-- high-level order;
-- definition of done;
-- notes and active assumptions.
+An iteration is closer to an **Agile sprint** than to a PR. One iteration may include:
 
-Rules:
+- one umbrella / master issue;
+- several sub-issues;
+- several PR slices inside a large issue;
+- documentation, review, and planning steps belonging to the same phase.
 
-- Treat `_working/ITERATION.md` as phase context, not Canon.
-- Update it when the active iteration changes.
-- Do not place stable product truth there; promote stable decisions to Canon or decision records.
-- For meaningful implementation/test work, ensure the file exists and matches the task before proceeding.
+A sprint-level descriptor should contain:
+
+- sprint goal;
+- umbrella / master issue(s);
+- source-of-truth docs;
+- scope and non-scope;
+- current tracker location;
+- completed major slices;
+- next recommended slice;
+- Cursor / AI rules for this sprint;
+- sprint Definition of Done.
+
+It is **not**:
+
+- a progress log;
+- a final report;
+- a per-PR task descriptor;
+- durable product truth;
+- a substitute for WIP, Canon, ADRs, issues, or PR bodies.
+
+### When to update `_working/ITERATION.md`
+
+**Do update** when:
+
+- the active sprint / phase changes;
+- the file is stale or materially misleading for the requested work;
+- the user explicitly asks to update the sprint descriptor.
+
+**Do not update** merely because:
+
+- a new PR is being created inside the same sprint;
+- a new area / slice is being worked inside the same umbrella issue;
+- the prompt provides detailed instructions for the current slice;
+- a final report needs somewhere to live.
+
+### Mismatch behavior
+
+If the prompt appears inconsistent with the current `_working/ITERATION.md`, stop and ask for clarification before changing files:
+
+- Is this still part of the current sprint?
+- Should `_working/ITERATION.md` be updated to a new sprint?
+- Should this task be deferred or handled under a different issue?
+
+For meaningful implementation/test work, ensure the file exists and matches the task before proceeding. Treat `_working/ITERATION.md` as phase context, not Canon. Do not place stable product truth there; promote stable decisions to Canon or decision records.
 
 ## Routing Rules
 
