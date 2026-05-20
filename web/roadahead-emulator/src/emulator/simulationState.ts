@@ -123,12 +123,7 @@ export function computeSimulationState(
 ): SimulationState {
   const vehicleRoutePosition = computeVehicleRoutePosition(progress, route);
   const eventProjections = projectEventsToRoute(events, route, vehicleRoutePosition);
-  const eventSelection = selectEvents(
-    vehicleRoutePosition,
-    events,
-    eventProjections,
-    config
-  );
+  const eventSelection = selectEvents(events, eventProjections, config);
   const speedReference = computeSpeedReference(eventSelection.primary);
 
   return {

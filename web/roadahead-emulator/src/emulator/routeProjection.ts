@@ -180,15 +180,26 @@ function projectToSegment2D(
  * Project a point [lon, lat] onto the route polyline.
  *
  * Tests every segment and returns the projection with minimum cross-track
- * distance. Uses local equirectangular metre approximation at each segment's
- * midpoint latitude.
+ * distance.
  *
- * WIP EMULATOR MATH — NOT PRODUCT CANON.
+ * Each segment is evaluated in a local coordinate frame anchored at the
+ * segment start point (a), so:
+ *   ax = 0,  ay = 0
+ *   bx = (b[0] - a[0]) * mLon,  by = (b[1] - a[1]) * METRES_PER_DEG_LAT
+ *   px = (lon - a[0]) * mLon,   py = (lat - a[1]) * METRES_PER_DEG_LAT
+ * The projected point is then converted back to lon/lat using the same anchor.
+ * This avoids large absolute coordinate values and keeps the metre
+ * approximation accurate within each segment.
+ *
+ * mLon uses the segment midpoint latitude (a[1] + b[1]) / 2.
+ *
+ * WIP EMULATOR MATH — NOT PRODUCT CANON. Local equirectangular approximation.
  *
  * @param lon - Input longitude (WGS84).
  * @param lat - Input latitude (WGS84).
- * @param route - Normalized route geometry.
+ * @param route - Normalized route geometry (must have ≥ 2 coordinates).
  * @returns RouteProjectionResult with best segment projection.
+ * @throws Error if route has fewer than 2 coordinates.
  */
 export function projectPointToRoute(
   lon: number,
@@ -196,31 +207,39 @@ export function projectPointToRoute(
   route: RouteGeometry
 ): RouteProjectionResult {
   const coords = route.coordinates;
+  if (coords.length < 2) {
+    throw new Error(
+      `projectPointToRoute: route requires at least 2 coordinates, got ${coords.length}`
+    );
+  }
+
   let bestProjection: ProjectedPoint | null = null;
   let cumulativeM = 0;
 
   for (let i = 0; i < coords.length - 1; i++) {
     const a = coords[i];
     const b = coords[i + 1];
-    const refLat = (a[1] + b[1]) / 2;
+    const lon0 = a[0];
+    const lat0 = a[1];
+    const refLat = (lat0 + b[1]) / 2;
     const mLon = metresPerDegLon(refLat);
 
-    const ax = a[0] * mLon;
-    const ay = a[1] * METRES_PER_DEG_LAT;
-    const bx = b[0] * mLon;
-    const by = b[1] * METRES_PER_DEG_LAT;
-    const px = lon * mLon;
-    const py = lat * METRES_PER_DEG_LAT;
+    // Local frame anchored at segment start — avoids large absolute values.
+    const bx = (b[0] - lon0) * mLon;
+    const by = (b[1] - lat0) * METRES_PER_DEG_LAT;
+    const px = (lon - lon0) * mLon;
+    const py = (lat - lat0) * METRES_PER_DEG_LAT;
 
     const segLen = segmentLengthM(a, b);
+    // ax = ay = 0 (local frame origin at segment start)
     const { t, qx, qy, crossTrackM } = projectToSegment2D(
-      px, py, ax, ay, bx, by
+      px, py, 0, 0, bx, by
     );
 
     const candidate: ProjectedPoint = {
       segment_index: i,
-      projected_lon: mLon > 0 ? qx / mLon : a[0],
-      projected_lat: qy / METRES_PER_DEG_LAT,
+      projected_lon: lon0 + (mLon > 0 ? qx / mLon : 0),
+      projected_lat: lat0 + qy / METRES_PER_DEG_LAT,
       along_route_m: cumulativeM + t * segLen,
       cross_track_m: crossTrackM,
     };
@@ -232,13 +251,8 @@ export function projectPointToRoute(
     cumulativeM += segLen;
   }
 
-  if (bestProjection === null) {
-    throw new Error(
-      "projectPointToRoute: route has no segments (requires at least 2 coordinates)"
-    );
-  }
-
-  return { best: bestProjection, input_lon: lon, input_lat: lat };
+  // bestProjection is always set when coords.length >= 2 (guarded above)
+  return { best: bestProjection!, input_lon: lon, input_lat: lat };
 }
 
 /**
@@ -259,8 +273,14 @@ export function computeVehicleRoutePosition(
   progress: number,
   route: RouteGeometry
 ): VehicleRoutePosition {
-  const clampedProgress = Math.max(0, Math.min(1, progress));
   const coords = route.coordinates;
+  if (coords.length < 2) {
+    throw new Error(
+      `computeVehicleRoutePosition: route requires at least 2 coordinates, got ${coords.length}`
+    );
+  }
+
+  const clampedProgress = Math.max(0, Math.min(1, progress));
 
   const segLengths: number[] = [];
   let totalM = 0;
@@ -268,6 +288,12 @@ export function computeVehicleRoutePosition(
     const len = segmentLengthM(coords[i], coords[i + 1]);
     segLengths.push(len);
     totalM += len;
+  }
+
+  if (totalM === 0) {
+    throw new Error(
+      "computeVehicleRoutePosition: route has zero total length (all coordinates are identical)"
+    );
   }
 
   const targetM = clampedProgress * totalM;
@@ -291,16 +317,9 @@ export function computeVehicleRoutePosition(
     remaining -= segLengths[i];
   }
 
-  // Fallback for edge case of empty route (should not occur with valid geometry)
-  const last = coords[coords.length - 1];
-  return {
-    progress: clampedProgress,
-    along_route_m: totalM,
-    projected_lon: last[0],
-    projected_lat: last[1],
-    segment_index: Math.max(0, segLengths.length - 1),
-    total_route_length_m: totalM,
-  };
+  // Unreachable with valid geometry guarded above; satisfies TypeScript.
+  /* istanbul ignore next */
+  throw new Error("computeVehicleRoutePosition: failed to locate vehicle segment (internal error)");
 }
 
 /**

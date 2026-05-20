@@ -30,10 +30,7 @@
 
 import type { PreparedEvent } from "../contracts/preparedEvent.js";
 import type { EmulatorTuningConfig } from "../contracts/tuningConfig.js";
-import type {
-  VehicleRoutePosition,
-  EventProjectionRecord,
-} from "./routeProjection.js";
+import type { EventProjectionRecord } from "./routeProjection.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -145,21 +142,18 @@ export interface EventSelectionResult {
  * All lookahead thresholds come from EmulatorTuningConfig and are WIP emulator
  * defaults — not Product Canon (tuning-and-validation Canon truths 1, 2).
  *
- * @param vehiclePosition - Vehicle route position from computeVehicleRoutePosition.
  * @param events - All prepared candidate events for this session.
  * @param projections - Per-event projection records from projectEventsToRoute.
+ *   Each record already carries signed_distance_m relative to the current
+ *   vehicle position (computed by projectEventsToRoute).
  * @param config - Active emulator tuning config (WIP defaults).
  * @returns Event selection result (transient; not persisted to fixtures).
  */
 export function selectEvents(
-  vehiclePosition: VehicleRoutePosition,
   events: PreparedEvent[],
   projections: EventProjectionRecord[],
   config: EmulatorTuningConfig
 ): EventSelectionResult {
-  // Suppress unused-variable lint for vehiclePosition (used implicitly via projections)
-  void vehiclePosition;
-
   const guardrails = config.lookahead.speed_limit;
 
   const projectionMap = new Map<string, EventProjectionRecord>(
