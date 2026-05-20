@@ -535,6 +535,14 @@ code {
   color: #666;
 }
 
+/* projection_missing — Slice 4.3 / Issue #53
+ * WIP — not Canon. Conservative suppressed: no projection record available.
+ * Distinct from "behind" to avoid misleading distance=0 inference. */
+.event-status-projection_missing {
+  background: #fef3e2;
+  color: #9a5200;
+}
+
 /* ── Event row highlights for direction-suppressed events ─────────────────── */
 
 .event-row-direction_conflict {
@@ -547,6 +555,10 @@ code {
 
 .event-row-direction_unsupported {
   background: #f7f7f7;
+}
+
+.event-row-projection_missing {
+  background: #fefaf3;
 }
 
 /* ── Direction compatibility badges ──────────────────────────────────────── */

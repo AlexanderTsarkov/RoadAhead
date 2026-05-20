@@ -99,6 +99,12 @@ import {
  *                           when applicability is ambiguous, prefer suppression.
  *   direction_unsupported — source dirtype value not handled by this baseline.
  *                           Conservative: prefer suppression until extended.
+ *
+ * "projection_missing" added in Slice 4.3 (Issue #53). Conservative: when no
+ * projection record is available for a speed_limit event, suppress from driver-
+ * facing selection rather than falling through to a misleading distance=0
+ * "behind" status. Debug-visible.
+ * WIP — not Canon. Maps to ApplicabilityReasonCode "missing_projection".
  */
 export type EventStatus =
   | "behind" // event is behind the vehicle (negative along-route distance)
@@ -107,6 +113,7 @@ export type EventStatus =
   | "direction_conflict" // within window; direction incompatible — suppressed (Slice 4.2 WIP)
   | "direction_unknown" // within window; direction could not be evaluated — suppressed (Slice 4.2 WIP)
   | "direction_unsupported" // within window; dirtype not handled — suppressed (Slice 4.2 WIP)
+  | "projection_missing" // no projection record; conservative suppressed — (Slice 4.3 WIP)
   | "candidate" // ahead and within window; direction compatible or bidirectional; not selected
   | "selected" // selected primary applicable event
   | "out_of_scope"; // event type not processed in this slice (non speed_limit)
@@ -198,25 +205,27 @@ export interface EventSelectionResult {
  * compatibility from Slice 4.2):
  *
  *  1. Non-speed_limit events → status: out_of_scope (not processed here).
- *  2. speed_limit events with negative or zero distance → status: behind.
- *  3. speed_limit events with distance > max_lookahead_m → status: too_far.
+ *  2. speed_limit events with no projection record → status: projection_missing.
+ *     Conservative: suppress rather than inferring distance=0 ("behind"). (Slice 4.3 WIP)
+ *  3. speed_limit events with negative or zero distance → status: behind.
+ *  4. speed_limit events with distance > max_lookahead_m → status: too_far.
  *     (WIP default from EmulatorTuningConfig.lookahead.speed_limit.max_lookahead_m)
- *  4. speed_limit events with 0 < distance < min_display_distance_m → status: too_close.
+ *  5. speed_limit events with 0 < distance < min_display_distance_m → status: too_close.
  *     (WIP Slice 4.1 simplified minimum window; not a general product rule that
  *     close events are always hidden. Future slices may revise this.)
  *     (WIP default from EmulatorTuningConfig.lookahead.speed_limit.min_display_distance_m)
- *  5. [Slice 4.2] speed_limit events within window; direction suppression rules:
+ *  6. [Slice 4.2] speed_limit events within window; direction suppression rules:
  *     - "incompatible"  → direction_conflict   (suppressed, debug-visible)
  *     - "unknown"       → direction_unknown    (suppressed, debug-visible)
  *     - "unsupported"   → direction_unsupported (suppressed, debug-visible)
  *     Conservative: when direction applicability is ambiguous or cannot be
  *     evaluated, prefer suppression / non-claim over driver-facing display.
  *     (event-applicability Canon truth 12; ui-model Canon truth 13; WIP)
- *  6. Remaining speed_limit events → status: candidate.
+ *  7. Remaining speed_limit events → status: candidate.
  *     Only "compatible" and "bidirectional" direction statuses reach this step.
  *     Bidirectional candidates are labeled in the reason string (WIP: dirtype=0
  *     treated as compatible for this baseline; semantics not Canon).
- *  7. Candidates sorted ascending by distance. First → selected (primary).
+ *  8. Candidates sorted ascending by distance. First → selected (primary).
  *     Second → candidate (secondary context, within the same simplified window;
  *     NOT the global next event on the route — full secondary semantics are WIP).
  *
@@ -255,9 +264,6 @@ export function selectEvents(
 
   for (const event of events) {
     const proj = projectionMap.get(event.event_id);
-    const distanceM = proj !== undefined ? proj.signed_distance_m : 0;
-    const along_route_m = proj?.projection.best.along_route_m ?? 0;
-    const cross_track_m = proj?.projection.best.cross_track_m ?? 0;
     const dirCompat = dirCompatMap.get(event.event_id) ?? null;
 
     if (event.normalized_type !== "speed_limit") {
@@ -265,9 +271,9 @@ export function selectEvents(
         event_id: event.event_id,
         normalized_type: event.normalized_type,
         target_speed_kmh: event.target_speed_kmh,
-        distance_m: distanceM,
-        projection_along_route_m: along_route_m,
-        projection_cross_track_m: cross_track_m,
+        distance_m: proj?.signed_distance_m ?? 0,
+        projection_along_route_m: proj?.projection.best.along_route_m ?? 0,
+        projection_cross_track_m: proj?.projection.best.cross_track_m ?? 0,
         status: "out_of_scope",
         reason: `Type "${event.normalized_type}" not processed in this slice (speed_limit only).`,
         applicabilityReason: makeApplicabilityReason("event_type_out_of_scope"),
@@ -275,6 +281,36 @@ export function selectEvents(
       });
       continue;
     }
+
+    // Explicit projection_missing guard — must come before distance-based checks.
+    // If no projection record is available for a speed_limit event, suppress
+    // conservatively rather than inferring distance=0 (which would misleadingly
+    // produce a "behind" status). Debug-visible only.
+    // WIP — not Canon. Maps to ApplicabilityReasonCode "missing_projection".
+    // (event-applicability Canon truth 12; Slice 4.3 / Issue #53)
+    if (proj === undefined) {
+      records.push({
+        event_id: event.event_id,
+        normalized_type: event.normalized_type,
+        target_speed_kmh: event.target_speed_kmh,
+        distance_m: 0,
+        projection_along_route_m: 0,
+        projection_cross_track_m: 0,
+        status: "projection_missing",
+        reason:
+          `No projection record found for event ${event.event_id}. ` +
+          `Conservative: suppressed from driver-facing selection; debug-visible. ` +
+          `(WIP — not Canon; per-session derived debug data)`,
+        applicabilityReason: makeApplicabilityReason("missing_projection"),
+        directionCompatibility: dirCompat,
+      });
+      continue;
+    }
+
+    // From here, proj is always defined.
+    const distanceM = proj.signed_distance_m;
+    const along_route_m = proj.projection.best.along_route_m;
+    const cross_track_m = proj.projection.best.cross_track_m;
 
     if (distanceM <= 0) {
       records.push({
