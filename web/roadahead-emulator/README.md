@@ -107,20 +107,90 @@ inputs. If Canon and any secondary source disagree, Canon wins.
 
 ---
 
-## Baseline non-goals (Slice 1 / Issue #41)
+## Fixture and config contracts (Slice 2 / Issue #44)
 
-This baseline slice intentionally excludes everything except the app
-scaffold. The following are **not present** and will be added in later
-slices:
+This section documents the synthetic fixture and configuration contracts
+added in Slice 2. These artifacts define the data shapes consumed by later
+emulator slices. They do **not** implement route rendering, vehicle
+simulation, event applicability, speed-reference, feedback/enforcement, or
+three-circle behavior.
 
-- No route geometry or route rendering
-- No prepared event fixtures
-- No Datakam import logic
+### Fixtures
+
+**All fixtures are synthetic.** No raw Datakam or OpenSpeedcam data is
+committed. No provider-derived geometry is committed.
+
+| File | Description |
+|---|---|
+| `src/fixtures/preparedEvents.synthetic.ts` | Two synthetic `speed_limit` candidate events placed on the synthetic route. Source: `synthetic_fixture`. No Datakam / OpenSpeedcam rows. No route-specific derived fields. |
+| `src/fixtures/routeGeometry.synthetic.ts` | Synthetic straight east-bound GeoJSON `LineString` test segment (6 waypoints). Provider: `synthetic_fixture`. Longitude-first `[lon, lat]` coordinates. Not provider-derived. |
+
+Both fixture files are exported as typed TypeScript modules. The route
+geometry fixture is also exported as a normalized `RouteGeometry` object
+(via `normalizeGeoJsonRoute`) so later slices consume the internal contract
+rather than the GeoJSON wrapper directly.
+
+### Contract types
+
+| File | Description |
+|---|---|
+| `src/contracts/preparedEvent.ts` | `PreparedEvent` interface and `NormalizedEventType` type. Encodes Canon constraints: candidate-only semantics, no route-specific derived fields, provenance required. |
+| `src/contracts/routeGeometry.ts` | `RouteGeometry`, `GeoJsonLineStringFeature`, and `normalizeGeoJsonRoute()`. Encodes Canon constraints: geometry-only (no provider speed/ETA/traffic), longitude-first coordinates. |
+| `src/contracts/tuningConfig.ts` | `EmulatorTuningConfig` and all sub-types (`DecelerationProfile`, `LookaheadGuardrails`, `DirectionApplicabilityConfig`, `EnforcementToleranceProfile`). |
+
+### Tuning config
+
+| File | Description |
+|---|---|
+| `src/config/emulatorTuningDefaults.ts` | `EMULATOR_TUNING_DEFAULTS` — the default `EmulatorTuningConfig` for Phase 0. |
+
+**WIP emulator defaults — not Product Canon.**
+
+Every numeric value in `src/config/emulatorTuningDefaults.ts` is a WIP
+emulator tuning starting default. No value is Product Canon. No value is
+safety-certified. No value makes a legal claim. All values must be
+validated through scenario sweeps before any promotion to Canon.
+See `docs/product/areas/tuning-and-validation/tuning-and-validation.md`
+(truths 1, 2, 3, 6, 7, 8).
+
+Numeric value sources (all WIP research, not Canon):
+
+- Timing / hysteresis:
+  `docs/research/roadahead-threshold-tuning-recommendation.md §4.1`
+- Reaction time:
+  `docs/research/roadahead-threshold-tuning-recommendation.md §4.2`
+- Deceleration profile:
+  `docs/research/roadahead-threshold-tuning-recommendation.md §4.3`
+- Lookahead guardrails:
+  `docs/research/roadahead-threshold-tuning-recommendation.md §4.4`
+- Direction applicability thresholds:
+  `docs/research/roadahead-direction-applicability-recommendation.md §4`
+- Enforcement profile (Russia POC default, +20 km/h):
+  `docs/research/roadahead-enforcement-profile-recommendation.md §4–§5`
+
+The Russia enforcement profile (`russia_default_plus_20_kmh`) is a
+configurable emulator profile only. It does not claim legal correctness or
+represent regulatory advice. `legal_claim` is always `false`.
+
+---
+
+## Slice 2 non-goals (Issue #44)
+
+The following are explicitly **not implemented** in Slice 2 and will be
+added in later slices:
+
+- No route rendering
+- No map library
+- No vehicle simulation
 - No event applicability logic
+- No direction compatibility logic
+- No route projection logic
 - No speed-reference logic
 - No feedback / enforcement logic
 - No three-circle UI behavior
-- No numeric tuning values or tuning config
+- No scenario sweep harness
+- No provider integration
+- No Datakam import
 
 ---
 
