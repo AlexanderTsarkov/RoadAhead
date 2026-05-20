@@ -2,6 +2,7 @@
  * RoadAhead Phase 0 — Web Route Emulator
  * Slice 4.1 / Issue #49: route projection baseline
  * Slice 4.2 / Issue #51: direction compatibility baseline
+ * Slice 4.3 / Issue #53: applicability suppression reason model
  *
  * Wires together synthetic fixtures, emulator logic, and a minimal UI.
  *
@@ -68,7 +69,7 @@ function buildApp(): void {
     <header>
       <h1>RoadAhead Phase 0 — Web Route Emulator</h1>
       <p class="subtitle">
-        Phase 0 validation emulator · Slice 4.2 — direction compatibility baseline ·
+        Phase 0 validation emulator · Slice 4.3 — applicability suppression reason model ·
         not the final delivery surface
       </p>
     </header>
@@ -144,6 +145,7 @@ function buildApp(): void {
           <li><strong>No numeric tuning value is Product Canon</strong> at this stage.</li>
           <li>Projection values and direction compatibility values shown in the debug panel are <strong>per-session derived data only</strong> — not persisted to base fixture files.</li>
           <li>Direction compatibility shown is a <strong>WIP baseline (Slice 4.2)</strong> — candidate semantics only. Branch/ramp/parallel-carriageway ambiguity handling is deferred to later child issues.</li>
+          <li>Applicability reason codes (Slice 4.3) are <strong>per-session derived WIP debug data, not Product Canon</strong>. Full reason taxonomy is deferred to later child issues under Issue #48.</li>
           <li>Source direction fields (<code>source_direction_deg</code>, <code>source_dirtype</code>) are <strong>candidate metadata only</strong> — not verified truth. (event-applicability Canon truth 8)</li>
         </ul>
         <p class="authority-note">
@@ -344,6 +346,13 @@ function renderDebugPanel(state: SimulationState): void {
       const dcStatusClass =
         dc != null ? `dir-compat-${dc.status}` : "dir-compat-unknown";
 
+      const ar = r.applicabilityReason;
+      const arKindClass = `ar-kind-${ar.kind}`;
+      const arEligibleClass = ar.is_driver_facing_eligible
+        ? "ar-eligible-yes"
+        : "ar-eligible-no";
+      const arEligibleText = ar.is_driver_facing_eligible ? "driver✓" : "debug";
+
       return `<tr class="event-row-${r.status}">
         <td><code>${escapeHtml(r.event_id)}</code></td>
         <td>${escapeHtml(r.normalized_type)}</td>
@@ -356,6 +365,11 @@ function renderDebugPanel(state: SimulationState): void {
         <td class="dist-cell dir-derived">${deltaStr}</td>
         <td class="dir-derived"><span class="dir-compat-badge ${dcStatusClass}">${escapeHtml(dcStatus)}</span></td>
         <td><span class="event-status event-status-${r.status}">${r.status}</span></td>
+        <td class="reason-code-cell">
+          <span class="ar-code">${escapeHtml(ar.code)}</span><br>
+          <span class="ar-kind ${arKindClass}">${escapeHtml(ar.kind)}</span>
+          <span class="ar-eligible ${arEligibleClass}">${arEligibleText}</span>
+        </td>
         <td class="reason-cell">${escapeHtml(r.reason)}</td>
       </tr>`;
     })
@@ -382,12 +396,15 @@ function renderDebugPanel(state: SimulationState): void {
 
     <div class="debug-warning">
       ⚠ All numeric thresholds shown below are <strong>WIP emulator defaults — NOT Product Canon</strong>.
-      Projection and direction compatibility values are <strong>per-session derived data</strong> —
+      Projection, direction compatibility, and applicability reason values are <strong>per-session derived data</strong> —
       not persisted to base fixture files. (event-applicability Canon truth 13; event-data Canon truth 11)
       Source direction fields are <strong>candidate metadata only, not verified truth</strong>.
       (event-applicability Canon truth 8)
       Direction compatibility shown is a WIP baseline (Slice 4.2) — candidate semantics, not Canon.
       Branch/ramp/parallel-carriageway ambiguity handling is deferred to later child issues.
+      <strong>Reason code column</strong> is a WIP structured suppression/acceptance reason model (Slice 4.3 / Issue #53) —
+      codes, kind values, and is_driver_facing_eligible reflect the simplified Slices 4.1–4.3 baseline only.
+      Full taxonomy is deferred to later child issues under Issue #48.
     </div>
 
     <div class="debug-grid">
@@ -455,7 +472,7 @@ function renderDebugPanel(state: SimulationState): void {
     <div class="debug-block debug-block-full">
       <h3>
         Event Selection
-        <span class="wip-inline">speed_limit scope · projection-derived distance · direction compat · Slice 4.2</span>
+        <span class="wip-inline">speed_limit scope · projection-derived distance · direction compat · Slice 4.3</span>
       </h3>
       <p class="debug-note">
         Ahead/behind determined by <strong>projection-derived along-route distance</strong>.
@@ -467,6 +484,8 @@ function renderDebugPanel(state: SimulationState): void {
         source direction is candidate metadata only, not verified truth. WIP baseline semantics — not Canon.
         <strong>Along-route / Cross-track</strong> (⊕) are per-session derived projection values — not persisted to fixtures.
         <strong>secondary</strong> = next event inside the simplified window only, not global next event on route.
+        <strong>Reason code</strong> (✦) is per-session derived structured reason data — WIP Slices 4.1–4.3 baseline, not Canon.
+        Codes include kind (accepted / suppressed / not_processed) and driver-facing eligibility per this baseline.
       </p>
       <div class="table-scroll">
         <table class="event-table">
@@ -483,6 +502,7 @@ function renderDebugPanel(state: SimulationState): void {
               <th class="dir-derived-label">Delta ⟳</th>
               <th class="dir-derived-label">Dir compat ⟳</th>
               <th>Status</th>
+              <th class="reason-code-header">Reason code ✦ <span class="wip-inline">WIP · not Canon</span></th>
               <th>Reason</th>
             </tr>
           </thead>
@@ -495,6 +515,9 @@ function renderDebugPanel(state: SimulationState): void {
         ⊕ per-session derived projection values — not persisted to base fixture files (event-applicability Canon truth 13)
         <br>⟳ per-session derived direction compatibility values — source direction is candidate metadata, not verified truth
         (event-applicability Canon truth 8; Slice 4.2 WIP — not Canon)
+        <br>✦ per-session derived structured reason code — WIP suppression/acceptance reason model (Slice 4.3 / Issue #53);
+        codes, kind, and is_driver_facing_eligible reflect Slices 4.1–4.3 baseline only — NOT Product Canon;
+        full taxonomy deferred to later child issues under Issue #48
       </p>
     </div>
 
