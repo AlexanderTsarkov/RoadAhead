@@ -10,10 +10,18 @@ Its purpose is to let the team exercise and validate RoadAhead's route-known
 event-applicability and advisory-feedback logic against synthetic fixtures,
 before any production delivery surface is built.
 
-This baseline (Slice 1 / Issue #41) contains only the app scaffold and a
-placeholder page. Emulator behavior — route geometry, event fixtures,
-applicability logic, speed-reference, three-circle UI model — will be added
-in subsequent implementation slices under
+Slice 3 / Issue #46 adds the **first minimal end-to-end behavior slice**:
+manual route-progress simulation, minimal event selection on the synthetic
+fixtures, advisory speed-reference state (`unknown` / `approach_target`), a
+minimal three-circle display, and a debug panel.
+
+See [§ Slice 3 — first minimal vertical slice](#slice-3--first-minimal-vertical-slice-issue-46)
+below for what is implemented and what is explicitly not.
+
+The app baseline (Slice 1 / Issue #41) and synthetic fixture contracts
+(Slice 2 / Issue #44) are prerequisites. Full event applicability logic,
+direction compatibility, branch/ramp handling, scenario sweeps, and provider
+integration are deferred to subsequent slices under
 [Issue #17](https://github.com/AlexanderTsarkov/RoadAhead/issues/17).
 
 ---
@@ -178,6 +186,74 @@ represent regulatory advice. `legal_claim` is always `false`.
 
 ---
 
+## Slice 3 — first minimal vertical slice (Issue #46)
+
+### What is implemented
+
+- **Simulation controls** — route-progress slider (0–100 %) and current-speed
+  controls (number input + ±1 / ±10 buttons). No real GPS. No provider speed.
+  (validation-emulator Canon truth 6)
+
+- **Minimal route-known event selection** (`src/emulator/minimalEventSelection.ts`):
+  - Identifies speed_limit events ahead of the vehicle using longitude ordering
+    (straight east-bound route only — SIMPLIFIED SYNTHETIC-ROUTE LOGIC).
+  - Suppresses events behind the vehicle.
+  - Applies lookahead guardrails from the WIP tuning config:
+    - `min_display_distance_m: 175 m` — events closer than this are `too_close`.
+    - `max_lookahead_m: 900 m` — events farther than this are `too_far`.
+    (WIP defaults — not Canon.)
+  - Selects the nearest qualifying event as primary; the next as secondary.
+
+- **Minimal speed-reference state** (`src/emulator/speedReference.ts`):
+  - `unknown` when no applicable event is selected.
+  - `approach_target` when the selected event provides `target_speed_kmh`.
+  - (speed-reference Canon truths 3, 4, 5)
+
+- **Route progress utilities** (`src/emulator/routeProgress.ts`):
+  - Longitude interpolation for the straight synthetic fixture.
+  - `progressToLon`, `lonToProgress`, `signedDistanceAlongRouteM`.
+  - SIMPLIFIED SYNTHETIC-ROUTE LOGIC — not for real curved routes.
+
+- **Simulation state** (`src/emulator/simulationState.ts`):
+  - `computeSimulationState()` ties route progress → event selection →
+    speed reference into one immutable snapshot per tick.
+  - No derived fields written back to fixture files.
+    (event-data Canon truth 11; event-applicability Canon truth 13)
+
+- **Minimal three-circle display** — current speed / primary event / secondary
+  context. WIP visual styling — not the final design.
+  (ui-model Canon truths 3, 4, 5, 15)
+
+- **Debug explanation panel**:
+  - Active route ID / provider.
+  - Event count / vehicle longitude / current speed.
+  - Speed-reference state and reason.
+  - Per-event status table: ahead / behind / too_far / too_close / selected /
+    candidate. Each row shows distance and reason.
+    (event-applicability Canon truth 12; validation-emulator Canon truth 7)
+  - Active tuning config subset (WIP defaults labeled NOT Canon).
+
+### Slice 3 non-goals
+
+The following are explicitly **not implemented** in Slice 3:
+
+- No full geospatial route projection (cross-track distance, segment index).
+- No direction-compatibility matrix.
+- No branch / ramp / parallel carriageway ambiguity handling.
+- No map rendering (no Leaflet or equivalent).
+- No provider integration (no Yandex API, no OSRM, no GPX/KML import).
+- No Datakam / OpenSpeedcam import.
+- No pass-feedback hold, camera-risk feedback, or `unsafe_likely`.
+- No enforcement-severity tiers or enforcement-threshold display.
+- No scenario sweep harness.
+- No `static_camera` or `road_bump` event processing.
+- No numeric Canon promotion.
+
+These are deferred to Slice 4 (event applicability foundation), Slice 5
+(scenario sweeps), and subsequent slices under Issue #17.
+
+---
+
 ## Slice 2 non-goals (Issue #44)
 
 The following are explicitly **not implemented** in Slice 2 and will be
@@ -213,7 +289,9 @@ Consistent with the existing web stack in `web/datakam-viewer`.
 ## References
 
 - Umbrella issue: [#17 — Phase 0 web emulator implementation](https://github.com/AlexanderTsarkov/RoadAhead/issues/17)
-- This slice: [#41 — App baseline / emulator path decision](https://github.com/AlexanderTsarkov/RoadAhead/issues/41)
+- Current slice: [#46 — Phase 0 emulator first minimal vertical slice](https://github.com/AlexanderTsarkov/RoadAhead/issues/46)
+- Slice 2: [#44 — Synthetic fixture contracts](https://github.com/AlexanderTsarkov/RoadAhead/issues/44)
+- Slice 1: [#41 — App baseline / emulator path decision](https://github.com/AlexanderTsarkov/RoadAhead/issues/41)
 - Planning doc: `docs/product/wip/roadahead-poc-v1-web-emulator-implementation-plan.md`
 - Product Canon: `docs/product/areas/`
 - Active sprint: `_working/ITERATION.md` (RA-0008)
