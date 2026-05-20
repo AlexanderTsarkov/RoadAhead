@@ -1,7 +1,22 @@
 /**
  * Minimal event selection — Phase 0 emulator
  * (Slice 4.1 / Issue #49 — route projection baseline;
- *  Slice 4.2 / Issue #51 — direction compatibility integration)
+ *  Slice 4.2 / Issue #51 — direction compatibility integration;
+ *  Slice 4.3 / Issue #53 — applicability suppression reason model)
+ *
+ * APPLICABILITY SUPPRESSION REASON MODEL (Slice 4.3)
+ * EventSelectionRecord now carries a structured ApplicabilityReason in addition
+ * to the existing human-readable reason string. The structured reason provides
+ * a machine-readable kind/code/label/is_driver_facing_eligible breakdown of each
+ * selection outcome.
+ *
+ * ApplicabilityReason values are per-session derived debug/runtime data.
+ * They MUST NOT be written back to base prepared event fixtures.
+ * (event-applicability Canon truth 13; event-data Canon truth 11)
+ *
+ * All reason codes, kind values, and the is_driver_facing_eligible flag are WIP
+ * baseline semantics for Slices 4.1–4.3 only — NOT Product Canon.
+ * The full applicability taxonomy is deferred to later child issues under #48.
  *
  * DIRECTION COMPATIBILITY BASELINE (Slice 4.2)
  * Event selection incorporates direction compatibility results. The mapping
@@ -19,8 +34,9 @@
  * confident display. Suppressed candidates remain visible in emulator debug.
  * (event-applicability Canon truth 12; ui-model Canon truth 13)
  *
- * These status names are WIP / not Canon. The full suppression reason taxonomy
- * is deferred to a later child issue under Issue #48.
+ * These status names are WIP / not Canon. The structured suppression reason
+ * model is introduced in Slice 4.3 / Issue #53 (applicabilityReason.ts).
+ * The full taxonomy may change in later child issues under Issue #48.
  *
  * The following remain explicitly NOT implemented and are deferred to later
  * child issues under Issue #48:
@@ -49,6 +65,10 @@ import type { PreparedEvent } from "../contracts/preparedEvent.js";
 import type { EmulatorTuningConfig } from "../contracts/tuningConfig.js";
 import type { EventProjectionRecord } from "./routeProjection.js";
 import type { DirectionCompatibilityRecord } from "./directionCompatibility.js";
+import {
+  makeApplicabilityReason,
+  type ApplicabilityReason,
+} from "./applicabilityReason.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -123,6 +143,19 @@ export interface EventSelectionRecord {
   status: EventStatus;
   /** Human-readable reason for this status, for the debug panel. */
   reason: string;
+  /**
+   * Structured applicability suppression / acceptance reason (Slice 4.3 / Issue #53).
+   *
+   * Per-session derived debug/runtime data — MUST NOT be persisted to base fixtures.
+   * (event-applicability Canon truth 13; event-data Canon truth 11)
+   *
+   * Provides machine-readable kind / code / label / is_driver_facing_eligible
+   * breakdown of the selection outcome, in addition to the human-readable reason
+   * string above.
+   *
+   * WIP — NOT Product Canon. Full taxonomy deferred to later child issues under #48.
+   */
+  applicabilityReason: ApplicabilityReason;
   /**
    * Direction compatibility record for this event (if available).
    * Per-session derived debug data — NOT persisted to base fixtures.
@@ -237,6 +270,7 @@ export function selectEvents(
         projection_cross_track_m: cross_track_m,
         status: "out_of_scope",
         reason: `Type "${event.normalized_type}" not processed in this slice (speed_limit only).`,
+        applicabilityReason: makeApplicabilityReason("event_type_out_of_scope"),
         directionCompatibility: null,
       });
       continue;
@@ -252,6 +286,7 @@ export function selectEvents(
         projection_cross_track_m: cross_track_m,
         status: "behind",
         reason: `Behind vehicle by ${Math.abs(distanceM).toFixed(0)} m (projection-derived along-route distance).`,
+        applicabilityReason: makeApplicabilityReason("behind_vehicle"),
         directionCompatibility: dirCompat,
       });
     } else if (distanceM > guardrails.max_lookahead_m) {
@@ -264,6 +299,7 @@ export function selectEvents(
         projection_cross_track_m: cross_track_m,
         status: "too_far",
         reason: `${distanceM.toFixed(0)} m ahead — beyond max lookahead ${guardrails.max_lookahead_m} m (WIP default, not Canon).`,
+        applicabilityReason: makeApplicabilityReason("outside_max_lookahead"),
         directionCompatibility: dirCompat,
       });
     } else if (distanceM < guardrails.min_display_distance_m) {
@@ -276,6 +312,7 @@ export function selectEvents(
         projection_cross_track_m: cross_track_m,
         status: "too_close",
         reason: `${distanceM.toFixed(0)} m ahead — inside min display window (< ${guardrails.min_display_distance_m} m). WIP Slice 4.1 simplified window only; not a general product rule that close events are always hidden. Future urgency/applicability behavior may revise this. (WIP default, not Canon)`,
+        applicabilityReason: makeApplicabilityReason("inside_min_display_window"),
         directionCompatibility: dirCompat,
       });
     } else if (dirCompat?.status === "incompatible") {
@@ -295,14 +332,34 @@ export function selectEvents(
           `Suppressed from driver-facing selection; debug-visible. ` +
           `Direction detail: ${dirCompat.reason} ` +
           `(WIP candidate semantics — not Canon; per-session derived debug data)`,
+        applicabilityReason: makeApplicabilityReason("direction_conflict"),
         directionCompatibility: dirCompat,
       });
-    } else if (dirCompat?.status === "unknown" || dirCompat === null) {
+    } else if (dirCompat === null) {
+      // No direction compatibility record at all (distinct from direction_unknown,
+      // which has a computed record whose evaluated status is "unknown").
+      // Conservative: suppress from driver-facing selection.
+      // Visible in debug only. (event-applicability Canon truth 12; Slice 4.2 WIP)
+      records.push({
+        event_id: event.event_id,
+        normalized_type: event.normalized_type,
+        target_speed_kmh: event.target_speed_kmh,
+        distance_m: distanceM,
+        projection_along_route_m: along_route_m,
+        projection_cross_track_m: cross_track_m,
+        status: "direction_unknown",
+        reason:
+          `${distanceM.toFixed(0)} m ahead — no direction compatibility record. ` +
+          `Conservative: suppressed from driver-facing selection; debug-visible. ` +
+          `(WIP candidate semantics — not Canon; per-session derived debug data)`,
+        applicabilityReason: makeApplicabilityReason("missing_direction_record"),
+        directionCompatibility: null,
+      });
+    } else if (dirCompat.status === "unknown") {
       // Direction could not be evaluated (missing/null source direction or dirtype).
       // Conservative: when direction applicability is ambiguous or cannot be
       // determined, prefer suppression over driver-facing display.
       // Visible in debug only. (event-applicability Canon truth 12; Slice 4.2 WIP)
-      const detail = dirCompat !== null ? dirCompat.reason : "No direction compatibility record computed.";
       records.push({
         event_id: event.event_id,
         normalized_type: event.normalized_type,
@@ -314,8 +371,9 @@ export function selectEvents(
         reason:
           `${distanceM.toFixed(0)} m ahead — direction could not be evaluated. ` +
           `Conservative: suppressed from driver-facing selection; debug-visible. ` +
-          `Direction detail: ${detail} ` +
+          `Direction detail: ${dirCompat.reason} ` +
           `(WIP candidate semantics — not Canon; per-session derived debug data)`,
+        applicabilityReason: makeApplicabilityReason("direction_unknown"),
         directionCompatibility: dirCompat,
       });
     } else if (dirCompat.status === "unsupported") {
@@ -336,6 +394,7 @@ export function selectEvents(
           `Conservative: suppressed from driver-facing selection; debug-visible. ` +
           `Direction detail: ${dirCompat.reason} ` +
           `(WIP candidate semantics — not Canon; per-session derived debug data)`,
+        applicabilityReason: makeApplicabilityReason("direction_unsupported"),
         directionCompatibility: dirCompat,
       });
     } else {
@@ -354,6 +413,7 @@ export function selectEvents(
         projection_cross_track_m: cross_track_m,
         status: "candidate",
         reason: `${distanceM.toFixed(0)} m ahead — within lookahead window [${guardrails.min_display_distance_m}–${guardrails.max_lookahead_m} m] (WIP defaults, not Canon).${dirNote}`,
+        applicabilityReason: makeApplicabilityReason("accepted_candidate"),
         directionCompatibility: dirCompat,
       });
     }
@@ -371,6 +431,7 @@ export function selectEvents(
     const primaryRecord = candidateRecords[0];
     primaryRecord.status = "selected";
     primaryRecord.reason = `SELECTED — ${primaryRecord.reason}`;
+    primaryRecord.applicabilityReason = makeApplicabilityReason("selected_primary");
     primary = events.find((e) => e.event_id === primaryRecord.event_id) ?? null;
 
     if (candidateRecords.length > 1) {
