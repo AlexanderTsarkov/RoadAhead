@@ -1,8 +1,10 @@
 /* ─────────────────────────────────────────────────────────────────────────
    RoadAhead Phase 0 — Web Route Emulator
    Slice 4.1 / Issue #49: route projection baseline
+   Slice 4.4 / Issue #55: debug accepted / suppressed view
    WIP styling — not the final design. Colors, layout, and visual treatment
    are not Product Canon and will change in future slices.
+   EMULATOR DEBUG / QA UI — NOT THE DRIVER-FACING UI.
    ───────────────────────────────────────────────────────────────────────── */
 
 *,
@@ -713,9 +715,148 @@ code {
 }
 
 .ar-eligible-no {
+  background: #fdf0f0;
+  color: #a00;
+  border: 1px solid #e8b8b8;
+}
+
+/* ── Debug filter bar (Slice 4.4 / Issue #55) ───────────────────────────── */
+/*
+ * EMULATOR DEBUG / QA ONLY — not driver-facing.
+ * The filter bar controls which event groups are visible in the debug table.
+ * It does NOT affect event selection behavior.
+ * Filter state is local to the emulator session.
+ */
+
+.debug-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.6rem;
   background: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.filter-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #555;
+  margin-right: 0.2rem;
+  flex-shrink: 0;
+}
+
+.filter-btn {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #444;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1.4;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.filter-btn:hover {
+  background: #eee;
+  border-color: #aaa;
+}
+
+.filter-btn-active {
+  background: #2255bb;
+  border-color: #1a44a0;
+  color: #fff;
+  font-weight: 600;
+}
+
+.filter-btn-active:hover {
+  background: #1a44a0;
+}
+
+.filter-note {
+  font-size: 0.72rem;
   color: #888;
-  border: 1px solid #d0d0d0;
+  font-style: italic;
+  margin-left: 0.35rem;
+  flex-shrink: 0;
+}
+
+/* ── Event table group separator rows (Slice 4.4 / Issue #55) ───────────── */
+/*
+ * Group separator rows visually separate accepted events from suppressed /
+ * not-processed events in the debug table.
+ *
+ * EMULATOR DEBUG / QA ONLY — not driver-facing UI.
+ * Debug visibility does NOT imply driver-facing eligibility.
+ * (event-applicability Canon truth 12; ui-model Canon truth 13)
+ */
+
+.group-header-row td {
+  padding: 0;
+}
+
+.group-header-cell {
+  padding: 0.35rem 0.6rem !important;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-bottom: 2px solid #ccc;
+  border-top: 2px solid #ccc;
+  line-height: 1.4;
+}
+
+.group-header-accepted {
+  background: #e8f7ee;
+  color: #1a5c30;
+  border-color: #a8d5b0;
+}
+
+.group-header-suppressed {
+  background: #fdf0f0;
+  color: #8a0000;
+  border-color: #e8b8b8;
+}
+
+.group-header-not-processed {
+  background: #f5f5f5;
+  color: #555;
+  border-color: #d0d0d0;
+}
+
+.group-header-note {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: inherit;
+  opacity: 0.8;
+  margin-top: 0.1rem;
+}
+
+/* ── Debug-only event rows (Slice 4.4 / Issue #55) ──────────────────────── */
+/*
+ * Secondary visual cue for rows that are NOT driver-facing eligible.
+ * The group separator header is the primary indicator.
+ * This adds a subtle left border as a persistent per-row indicator.
+ *
+ * EMULATOR DEBUG / QA ONLY. Not driver-facing.
+ * (ui-model Canon truth 13; event-applicability Canon truth 12)
+ */
+
+.debug-only-row {
+  border-left: 3px solid #e0b0b0;
+}
+
+/* Empty-filter message */
+.table-empty-msg {
+  text-align: center;
+  color: #888;
+  font-style: italic;
+  padding: 1rem !important;
+  font-size: 0.82rem;
 }
 
 /* ── Canon guardrails section ────────────────────────────────────────────── */
