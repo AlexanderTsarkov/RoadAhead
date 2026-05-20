@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RoadAhead Phase 0 — Web Route Emulator</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>RoadAhead Phase 0 — Web Route Emulator</h1>
+        <p class="subtitle">Phase 0 validation emulator · not the final delivery surface</p>
+      </header>
+
+      <main>
+        <section class="notice">
+          <h2>Baseline placeholder</h2>
+          <p>
+            This app is the Phase 0 interactive web route emulator for the
+            RoadAhead project. It is a <strong>research and validation tool
+            only</strong> — not the final delivery surface, not a production
+            app, and not a driver-facing product.
+          </p>
+          <p>
+            Emulator behavior (route simulation, event applicability, UI model)
+            will be introduced in subsequent implementation slices under
+            <a href="https://github.com/AlexanderTsarkov/RoadAhead/issues/17"
+               target="_blank" rel="noopener">Issue #17</a>.
+            This slice (Issue #41) establishes the app baseline only.
+          </p>
+        </section>
+
+        <section class="canon-guardrails">
+          <h2>Product Canon guardrails</h2>
+          <ul>
+            <li>RoadAhead is <strong>not</strong> a navigator.</li>
+            <li>RoadAhead is <strong>not</strong> an anti-radar.</li>
+            <li>RoadAhead is <strong>not</strong> a legal speed-limit authority.</li>
+            <li>RoadAhead is <strong>not</strong> safety-certified.</li>
+            <li>External road-event data is <strong>candidate input only</strong>, not verified RoadAhead truth.</li>
+            <li>Raw Datakam / OpenSpeedcam data is <strong>import / source material only</strong>.</li>
+            <li>Route provider data may supply <strong>geometry only</strong>; provider non-geometry signals are not RoadAhead truth.</li>
+            <li><strong>No numeric tuning value is Product Canon</strong> at this stage.</li>
+          </ul>
+          <p class="authority-note">
+            <strong>Product Canon is the primary authority.</strong>
+            See <code>docs/product/areas/</code> in the repository.
+            This emulator is a WIP validation tool; its behavior and any numeric
+            defaults it will use in later slices are WIP only and require
+            validation evidence before any Canon promotion.
+          </p>
+        </section>
+
+        <section class="non-goals">
+          <h2>What this baseline does not include</h2>
+          <ul>
+            <li>No route geometry or route rendering</li>
+            <li>No prepared event fixtures</li>
+            <li>No Datakam import</li>
+            <li>No event applicability logic</li>
+            <li>No speed-reference logic</li>
+            <li>No feedback / enforcement logic</li>
+            <li>No three-circle behavior</li>
+            <li>No numeric tuning values</li>
+          </ul>
+          <p>These will be introduced in subsequent slices under Issue #17.</p>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
