@@ -520,6 +520,68 @@ code {
   color: #aaa;
 }
 
+.event-status-direction_conflict {
+  background: #fde8ff;
+  color: #7c0097;
+}
+
+/* ── Event row highlight for direction conflict ───────────────────────────── */
+
+.event-row-direction_conflict {
+  background: #fdf5ff;
+}
+
+/* ── Direction compatibility badges ──────────────────────────────────────── */
+
+.dir-derived {
+  color: #6600aa;
+}
+
+.dir-derived-label {
+  color: #6600aa;
+  font-style: italic;
+  font-size: 0.82em;
+}
+
+.dirtype-label {
+  font-size: 0.75em;
+  color: #888;
+}
+
+.dir-compat-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dir-compat-compatible {
+  background: #d4f5e2;
+  color: #1a7a40;
+}
+
+.dir-compat-incompatible {
+  background: #fde8ff;
+  color: #7c0097;
+}
+
+.dir-compat-bidirectional {
+  background: #e8f0ff;
+  color: #2255bb;
+}
+
+.dir-compat-unknown {
+  background: #f0f0f0;
+  color: #888;
+}
+
+.dir-compat-unsupported {
+  background: #fff8e6;
+  color: #997700;
+}
+
 /* ── Debug pre / JSON ────────────────────────────────────────────────────── */
 
 .debug-pre {
