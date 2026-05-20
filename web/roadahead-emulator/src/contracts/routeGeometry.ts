@@ -105,15 +105,69 @@ export interface GeoJsonLineStringFeature {
  * This is the only place the GeoJSON fixture format is interpreted.
  * All downstream emulator logic operates on RouteGeometry, not on the
  * GeoJSON-specific shape.
+ *
+ * Performs lightweight structural validation and throws a descriptive Error
+ * on any contract violation. This is fixture/contract validation only — not
+ * route logic.
  */
 export function normalizeGeoJsonRoute(
   feature: GeoJsonLineStringFeature
 ): RouteGeometry {
+  if (feature.type !== "Feature") {
+    throw new Error(
+      `normalizeGeoJsonRoute: expected GeoJSON type "Feature", got "${String(feature.type)}"`
+    );
+  }
+  if (feature.geometry.type !== "LineString") {
+    throw new Error(
+      `normalizeGeoJsonRoute: expected geometry type "LineString", got "${String(feature.geometry.type)}"`
+    );
+  }
+
+  const coords = feature.geometry.coordinates;
+  if (!Array.isArray(coords) || coords.length < 2) {
+    throw new Error(
+      `normalizeGeoJsonRoute: coordinates must be an array with at least 2 entries, got ${Array.isArray(coords) ? coords.length : typeof coords}`
+    );
+  }
+  for (let i = 0; i < coords.length; i++) {
+    const coord = coords[i];
+    if (!Array.isArray(coord) || coord.length < 2) {
+      throw new Error(
+        `normalizeGeoJsonRoute: coordinate at index ${i} must be a [lon, lat] tuple`
+      );
+    }
+    const [lon, lat] = coord;
+    if (typeof lon !== "number" || !isFinite(lon)) {
+      throw new Error(
+        `normalizeGeoJsonRoute: coordinate[${i}][0] (lon) must be a finite number, got ${String(lon)}`
+      );
+    }
+    if (typeof lat !== "number" || !isFinite(lat)) {
+      throw new Error(
+        `normalizeGeoJsonRoute: coordinate[${i}][1] (lat) must be a finite number, got ${String(lat)}`
+      );
+    }
+  }
+
+  const provider = feature.properties["provider"];
+  if (typeof provider !== "string" || provider.trim() === "") {
+    throw new Error(
+      `normalizeGeoJsonRoute: properties.provider must be a non-empty string`
+    );
+  }
+  const generatedAt = feature.properties["generated_at"];
+  if (typeof generatedAt !== "string" || generatedAt.trim() === "") {
+    throw new Error(
+      `normalizeGeoJsonRoute: properties.generated_at must be a non-empty string`
+    );
+  }
+
   return {
-    coordinates: feature.geometry.coordinates,
+    coordinates: coords,
     provenance: {
-      provider: feature.properties["provider"] as string,
-      generated_at: feature.properties["generated_at"] as string,
+      provider,
+      generated_at: generatedAt,
       notes: feature.properties["notes"] as string | undefined,
     },
   };

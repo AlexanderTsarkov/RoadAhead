@@ -91,8 +91,18 @@ export interface PreparedEvent {
   /**
    * Advisory target speed in km/h. Required for speed_limit; nullable for
    * other types that do not carry a target speed.
-   * This is the reference for normal guidance — NOT enforcement threshold.
-   * (enforcement-profile recommendation §2; threshold-tuning recommendation §3.2)
+   *
+   * This value is advisory guidance context only — not a legal speed-limit
+   * authority and not safety-certified. It is sourced from the prepared
+   * candidate event record (not from a route provider or a legal database)
+   * and is subject to the candidate/non-verified semantics of this event.
+   * (speed-reference Canon truths 4, 5; event-data Canon truths 1, 5)
+   *
+   * In emulator logic, target_speed_kmh is the reference for normal guidance
+   * bands (approach_target state). It is NOT the enforcement threshold.
+   * The enforcement threshold is computed separately per session from the
+   * active enforcement profile and must never leak into normal guidance.
+   * (speed-reference Canon truths 4, 5)
    */
   target_speed_kmh: number | null;
 

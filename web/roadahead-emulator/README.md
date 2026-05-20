@@ -153,6 +153,10 @@ validated through scenario sweeps before any promotion to Canon.
 See `docs/product/areas/tuning-and-validation/tuning-and-validation.md`
 (truths 1, 2, 3, 6, 7, 8).
 
+> **Warning:** These values must not be copied into product behavior,
+> UI labels, or debug strings as validated, legal, or safety-authoritative
+> truth. They are starting points for emulator exploration only.
+
 Numeric value sources (all WIP research, not Canon):
 
 - Timing / hysteresis:
