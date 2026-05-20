@@ -2,7 +2,7 @@
   "name": "roadahead-emulator",
   "version": "0.1.0",
   "private": true,
-  "description": "RoadAhead Phase 0 web route emulator — fixture/config contracts (Slice 2)",
+  "description": "RoadAhead Phase 0 web route emulator — first minimal vertical slice (Slice 3)",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
