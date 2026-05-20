@@ -1,0 +1,40 @@
+name: Web CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Check ${{ matrix.app }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        app:
+          - web/datakam-viewer
+          - web/roadahead-emulator
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app }}
+        run: npm ci
+
+      - name: Type-check
+        working-directory: ${{ matrix.app }}
+        run: npx tsc --noEmit
+
+      - name: Build
+        working-directory: ${{ matrix.app }}
+        run: npm run build
