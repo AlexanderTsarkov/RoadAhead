@@ -5,6 +5,7 @@ node_modules/
 dist/
 build/
 coverage/
+dist-scripts/
 
 # Environment / secrets
 .env

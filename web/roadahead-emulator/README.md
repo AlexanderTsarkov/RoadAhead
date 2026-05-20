@@ -42,10 +42,42 @@ npx tsc --noEmit
 
 # Production build (output: dist/)
 npm run build
+
+# Scenario sweep — run synthetic scenarios against emulator domain logic
+npm run scenario:sweep
 ```
 
 No backend, database, or environment variables are required. The app is a
 static SPA.
+
+### Scenario sweep
+
+`npm run scenario:sweep` compiles the scenario harness (into an untracked
+`dist-scripts/` directory) and runs 8 synthetic scenarios against the
+existing emulator domain logic (`computeSimulationState`). It prints
+expected-vs-actual pass/fail for each check and exits non-zero if any
+scenario fails.
+
+The sweep does **not** use a browser, Playwright, Cypress, or any browser
+automation. It does not require Yandex API, any provider, network, or user
+account. It uses synthetic fixtures only.
+
+**Scenario results are WIP validation evidence — NOT Product Canon.**
+They are not legal, safety, or human-factors validation. Passing scenarios
+only means the current WIP emulator behavior matches the current WIP
+expected outcomes for synthetic fixtures. No numeric tuning value is
+promoted to Canon by the scenario results.
+See `docs/product/areas/tuning-and-validation/tuning-and-validation.md`
+(truths 1, 2, 9).
+
+Scenario source files:
+
+| File | Description |
+|---|---|
+| `src/emulator/scenarios/scenarioTypes.ts` | TypeScript type model for scenarios, checks, and results. |
+| `src/emulator/scenarios/syntheticScenarios.ts` | Initial scenario set (8 scenarios, WIP). |
+| `src/emulator/scenarios/runScenarioSweep.ts` | Runner: calls `computeSimulationState`, evaluates checks, prints output. |
+| `tsconfig.scripts.json` | Separate TypeScript config for Node.js compilation of the runner. |
 
 ---
 
@@ -308,7 +340,9 @@ Consistent with the existing web stack in `web/datakam-viewer`.
 ## References
 
 - Umbrella issue: [#17 — Phase 0 web emulator implementation](https://github.com/AlexanderTsarkov/RoadAhead/issues/17)
-- Current slice: [#46 — Phase 0 emulator first minimal vertical slice](https://github.com/AlexanderTsarkov/RoadAhead/issues/46)
+- Slice 5: [#59 — Scenario sweep harness and validation evidence recording](https://github.com/AlexanderTsarkov/RoadAhead/issues/59)
+- Slice 4: [#48 — Event applicability foundation](https://github.com/AlexanderTsarkov/RoadAhead/issues/48)
+- Slice 3: [#46 — Phase 0 emulator first minimal vertical slice](https://github.com/AlexanderTsarkov/RoadAhead/issues/46)
 - Slice 2: [#44 — Synthetic fixture contracts](https://github.com/AlexanderTsarkov/RoadAhead/issues/44)
 - Slice 1: [#41 — App baseline / emulator path decision](https://github.com/AlexanderTsarkov/RoadAhead/issues/41)
 - Planning doc: `docs/product/wip/roadahead-poc-v1-web-emulator-implementation-plan.md`

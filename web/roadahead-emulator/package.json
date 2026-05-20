@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:scenarios": "mkdir -p dist-scripts && tsc -p tsconfig.scripts.json",
+    "scenario:sweep": "npm run build:scenarios && node dist-scripts/emulator/scenarios/runScenarioSweep.js"
   },
   "devDependencies": {
     "typescript": "^5.4.5",
