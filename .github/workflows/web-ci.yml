@@ -38,3 +38,8 @@ jobs:
       - name: Build
         working-directory: ${{ matrix.app }}
         run: npm run build
+
+      - name: Scenario sweep
+        if: matrix.app == 'web/roadahead-emulator'
+        working-directory: ${{ matrix.app }}
+        run: npm run scenario:sweep
