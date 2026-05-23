@@ -859,7 +859,300 @@ code {
   font-size: 0.82rem;
 }
 
-/* ── Canon guardrails section ────────────────────────────────────────────── */
+/* ── Sticky operator simulation header (Slice 4.6 / Issue #63) ───────────── */
+/*
+ * EMULATOR OPERATOR / QA UI ONLY — NOT THE DRIVER-FACING UI.
+ * Not final UX design. Not a navigator. Not an anti-radar.
+ * All values are WIP emulator defaults — not Product Canon.
+ *
+ * The header is position:sticky so controls and live state remain visible
+ * while the operator scrolls the debug table below.
+ */
+
+.op-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: #1a2233;
+  border-bottom: 2px solid #2d3e5a;
+  border-radius: 6px;
+  padding: 0.55rem 1rem 0.5rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  color: #e8ecf2;
+}
+
+.op-header-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  flex-wrap: wrap;
+}
+
+.op-header-top-row {
+  margin-bottom: 0.35rem;
+  font-size: 0.82rem;
+  border-bottom: 1px solid #2d3e5a;
+  padding-bottom: 0.3rem;
+}
+
+.op-header-title {
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: #c8d8f0;
+  flex-shrink: 0;
+}
+
+.op-header-wip-badge {
+  font-size: 0.68rem;
+  background: #2d1a1a;
+  color: #f0a0a0;
+  border: 1px solid #7a3030;
+  border-radius: 3px;
+  padding: 0.1em 0.45em;
+  flex-shrink: 0;
+}
+
+.op-header-route-info {
+  font-size: 0.7rem;
+  color: #6a7f9a;
+  margin-left: auto;
+}
+
+/* Controls row */
+
+.op-header-controls-row {
+  margin-bottom: 0.35rem;
+  border-bottom: 1px solid #2d3e5a;
+  padding-bottom: 0.35rem;
+}
+
+.op-controls-block {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Override control element colors for the dark header */
+
+.op-header .control-label {
+  color: #90a8c4;
+}
+
+.op-header .control-value {
+  color: #b8ccdf;
+}
+
+.op-header .progress-slider {
+  accent-color: #5ba8e5;
+}
+
+.op-header .speed-btn {
+  background: #253447;
+  border-color: #3a526a;
+  color: #c0d4e8;
+}
+
+.op-header .speed-btn:hover {
+  background: #304a63;
+  border-color: #4a6882;
+}
+
+.op-header .speed-btn:active {
+  background: #3c5b78;
+}
+
+.op-header .speed-input {
+  background: #1b2a3d;
+  border-color: #3a526a;
+  color: #eef3f8;
+}
+
+.op-header .unit {
+  color: #6a8aaa;
+}
+
+/* State row: compact circles + live summary */
+
+.op-header-state-row {
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+/* Compact circles — override the standard 140 × 140 px size */
+
+.op-circles-wrap {
+  flex-shrink: 0;
+}
+
+.op-circles-wrap .three-circles {
+  gap: 0.55rem;
+  margin: 0.15rem 0 0.2rem;
+  justify-content: flex-start;
+}
+
+.op-circles-wrap .circle {
+  width: 74px;
+  height: 74px;
+  border-color: #2d3e5a;
+  background: #1b2a3d;
+}
+
+.op-circles-wrap .circle-value {
+  font-size: 1.55rem;
+  color: #e8ecf2;
+}
+
+.op-circles-wrap .circle-label {
+  font-size: 0.6rem;
+  color: #7090a8;
+}
+
+.op-circles-wrap .circle-unit {
+  font-size: 0.6rem;
+  color: #5a7890;
+}
+
+.op-circles-wrap .circle-sublabel {
+  font-size: 0.56rem;
+  color: #4a6880;
+}
+
+.op-circles-wrap .circle-current {
+  border-color: #3d5570;
+  background: #1b2a3d;
+}
+
+.op-circles-wrap .circle-current .circle-value {
+  color: #e8ecf2;
+}
+
+.op-circles-wrap .circle-primary.circle-state-active {
+  border-color: #27ae60;
+  background: #0a2a1a;
+}
+
+.op-circles-wrap .circle-primary.circle-state-active .circle-value {
+  color: #50d090;
+}
+
+.op-circles-wrap .circle-primary.circle-state-inactive {
+  border-color: #2d3e5a;
+  background: #1a2233;
+}
+
+.op-circles-wrap .circle-primary.circle-state-inactive .circle-value {
+  color: #3d5570;
+}
+
+.op-circles-wrap .circle-secondary {
+  border-color: #2d3e5a;
+  background: #1a2233;
+  opacity: 0.65;
+}
+
+.op-circles-wrap .circle-secondary .circle-value {
+  color: #3d5570;
+}
+
+.op-circles-wrap .speed-ref-state-row {
+  font-size: 0.7rem;
+  color: #7090a8;
+  text-align: left;
+  margin-top: 0.1rem;
+}
+
+.op-circles-wrap .state-approach-target {
+  color: #50d090;
+}
+
+.op-circles-wrap .state-unknown {
+  color: #6a8aaa;
+}
+
+.op-circles-wrap .state-reason {
+  color: #506a82;
+}
+
+/* Live summary — shown to the right of compact circles */
+
+.op-summary {
+  flex: 1;
+  min-width: 0;
+}
+
+.op-summary-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1rem;
+  align-items: flex-start;
+}
+
+.op-summary-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 56px;
+}
+
+.op-summary-label {
+  font-size: 0.62rem;
+  color: #5a7890;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+  margin-bottom: 0.1rem;
+}
+
+.op-summary-value {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #c0d4e8;
+  line-height: 1.3;
+}
+
+.op-summary-event-id {
+  font-size: 0.78rem;
+  background: transparent;
+  color: #a0c0e0;
+  padding: 0;
+}
+
+.op-summary-target-speed {
+  color: #b0e0b8;
+}
+
+.op-summary-none {
+  font-style: normal;
+  color: #3d5570;
+}
+
+.op-state-approach-target {
+  color: #50d090;
+}
+
+.op-state-unknown {
+  color: #6a8aaa;
+}
+
+.op-count-accepted {
+  color: #50d090;
+}
+
+.op-count-suppressed {
+  color: #e08888;
+}
+
+.op-count-not-processed {
+  color: #6a8aaa;
+}
+
+.op-reason-code {
+  font-size: 0.76rem;
+  background: transparent;
+  color: #90b8d8;
+  padding: 0;
+}
+
+
 
 .canon-guardrails {
   border-left: 4px solid #c0392b;

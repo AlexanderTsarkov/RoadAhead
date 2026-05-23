@@ -5,6 +5,7 @@
  * Slice 4.3 / Issue #53: applicability suppression reason model
  * Slice 4.4 / Issue #55: debug accepted / suppressed view
  * Slice 4.5 / Issue #57: synthetic applicability fixture cases
+ * Slice 4.6 / Issue #63: sticky operator simulation header
  *
  * Wires together synthetic fixtures, emulator logic, and a minimal UI.
  *
@@ -89,11 +90,77 @@ function buildApp(): void {
 
   const { minLon, maxLon } = getRouteLonSpan(SYNTHETIC_ROUTE);
 
+  // ---------------------------------------------------------------------------
+  // Sticky operator simulation header (Slice 4.6 / Issue #63)
+  //
+  // The op-header is position:sticky so it remains visible while scrolling the
+  // debug table below. Controls and the three-circle display are housed here.
+  //
+  // EMULATOR OPERATOR / QA UI ONLY — NOT THE DRIVER-FACING UI.
+  // Not final UX design. All values are WIP emulator defaults — not Canon.
+  //
+  // The same DOM IDs used by attachControls() (progress-slider, speed-input,
+  // speed-down-10, speed-down-1, speed-up-1, speed-up-10) and renderThreeCircles()
+  // (three-circles, speed-ref-state-row) are preserved in the sticky header so
+  // those functions wire and render correctly without changes.
+  // ---------------------------------------------------------------------------
+
   app.innerHTML = `
+    <div id="op-header" class="op-header" aria-label="Operator simulation header — emulator debug / QA only">
+      <div class="op-header-row op-header-top-row">
+        <span class="op-header-title">RoadAhead Phase 0 · Operator Simulation</span>
+        <span class="op-header-wip-badge">debug / QA only — not driver-facing UI</span>
+        <span class="op-header-route-info">
+          Synthetic E-bound · lon ${minLon.toFixed(3)}° → ${maxLon.toFixed(3)}° ·
+          ${SYNTHETIC_PREPARED_EVENTS.length} events · no real GPS
+        </span>
+      </div>
+
+      <div class="op-header-row op-header-controls-row">
+        <div class="op-controls-block">
+          <div class="control-row">
+            <label for="progress-slider" class="control-label">Route Progress</label>
+            <input
+              type="range"
+              id="progress-slider"
+              min="0" max="100" value="0" step="1"
+              class="progress-slider"
+            >
+            <span id="progress-display" class="control-value">0%</span>
+          </div>
+          <div class="control-row">
+            <label class="control-label">Current Speed</label>
+            <div class="speed-control-group">
+              <button id="speed-down-10" class="speed-btn" type="button">−10</button>
+              <button id="speed-down-1" class="speed-btn" type="button">−1</button>
+              <input
+                type="number"
+                id="speed-input"
+                value="60"
+                min="0" max="250" step="1"
+                class="speed-input"
+              >
+              <button id="speed-up-1" class="speed-btn" type="button">+1</button>
+              <button id="speed-up-10" class="speed-btn" type="button">+10</button>
+              <span class="unit">km/h</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="op-header-row op-header-state-row">
+        <div class="op-circles-wrap">
+          <div class="three-circles" id="three-circles"><!-- populated by render() --></div>
+          <p class="speed-ref-state-row" id="speed-ref-state-row"><!-- populated by render() --></p>
+        </div>
+        <div class="op-summary" id="op-summary"><!-- populated by renderOperatorHeader() --></div>
+      </div>
+    </div>
+
     <header>
       <h1>RoadAhead Phase 0 — Web Route Emulator</h1>
       <p class="subtitle">
-        Phase 0 validation emulator · Slice 4.5 — synthetic applicability fixture cases ·
+        Phase 0 validation emulator · Slice 4.6 — sticky operator simulation header ·
         emulator debug / QA UI only — not the driver-facing UI · not final UX design
       </p>
     </header>
@@ -106,51 +173,6 @@ function buildApp(): void {
         Reason / status names shown in the debug panel are WIP / not Product Canon.
         Uses <strong>synthetic fixtures only</strong> — no Yandex API, no provider, no network,
         no account required.
-      </section>
-
-      <section class="controls-section">
-        <h2>Simulation Controls</h2>
-        <p class="controls-note">
-          Synthetic straight east-bound route · lon ${minLon.toFixed(3)}° → ${maxLon.toFixed(3)}° ·
-          ${SYNTHETIC_PREPARED_EVENTS.length} synthetic events (speed_limit + static_camera) · no real GPS
-        </p>
-        <div class="control-row">
-          <label for="progress-slider" class="control-label">Route Progress</label>
-          <input
-            type="range"
-            id="progress-slider"
-            min="0" max="100" value="0" step="1"
-            class="progress-slider"
-          >
-          <span id="progress-display" class="control-value">0%</span>
-        </div>
-        <div class="control-row">
-          <label class="control-label">Current Speed</label>
-          <div class="speed-control-group">
-            <button id="speed-down-10" class="speed-btn" type="button">−10</button>
-            <button id="speed-down-1" class="speed-btn" type="button">−1</button>
-            <input
-              type="number"
-              id="speed-input"
-              value="60"
-              min="0" max="250" step="1"
-              class="speed-input"
-            >
-            <button id="speed-up-1" class="speed-btn" type="button">+1</button>
-            <button id="speed-up-10" class="speed-btn" type="button">+10</button>
-            <span class="unit">km/h</span>
-          </div>
-        </div>
-      </section>
-
-      <section class="three-circle-section">
-        <h2>Speed Reference Display <span class="wip-badge">WIP visual styling — not final design</span></h2>
-        <div class="three-circles" id="three-circles">
-          <!-- populated by render() -->
-        </div>
-        <p class="speed-ref-state-row" id="speed-ref-state-row">
-          <!-- populated by render() -->
-        </p>
       </section>
 
       <section class="debug-section" id="debug-section">
@@ -251,6 +273,7 @@ function render(): void {
   const state = getState();
   updateProgressDisplay();
   renderThreeCircles(state);
+  renderOperatorHeader(state);
   renderDebugPanel(state);
 }
 
@@ -318,8 +341,121 @@ function renderThreeCircles(state: SimulationState): void {
 }
 
 // ---------------------------------------------------------------------------
-// Debug panel event table helpers
+// Operator header — sticky summary (Slice 4.6 / Issue #63)
 //
+// EMULATOR OPERATOR / QA UI ONLY — NOT THE DRIVER-FACING UI.
+// The sticky header summarises the live simulation state so the operator can
+// monitor primary event, speed reference state, target speed, and event
+// selection counts while scrolling the debug table below.
+//
+// All values are derived from SimulationState and are WIP emulator defaults —
+// not Product Canon. No domain logic is duplicated here.
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive accepted / suppressed / not_processed counts from simulation state.
+ *
+ * Uses applicabilityReason.kind from each EventSelectionRecord.
+ * Counts match the debug table grouping exactly.
+ *
+ * EMULATOR DEBUG / QA ONLY — not driver-facing.
+ */
+function getEventSelectionSummary(state: SimulationState): {
+  acceptedCount: number;
+  suppressedCount: number;
+  notProcessedCount: number;
+} {
+  const records = state.eventSelection.records;
+  return {
+    acceptedCount: records.filter((r) => r.applicabilityReason.kind === "accepted").length,
+    suppressedCount: records.filter((r) => r.applicabilityReason.kind === "suppressed").length,
+    notProcessedCount: records.filter((r) => r.applicabilityReason.kind === "not_processed").length,
+  };
+}
+
+/**
+ * Render the live summary strip inside the sticky operator header.
+ *
+ * Updates #op-summary with:
+ *   - primary event id (or "none")
+ *   - speed reference state
+ *   - target speed if any
+ *   - accepted / suppressed / not_processed counts
+ *   - current primary reason code if available
+ *
+ * All values are derived from SimulationState. No domain logic is duplicated.
+ *
+ * EMULATOR OPERATOR / QA UI ONLY — NOT THE DRIVER-FACING UI.
+ * Not final UX design. All values are WIP emulator defaults — not Canon.
+ */
+function renderOperatorHeader(state: SimulationState): void {
+  const summaryEl = document.getElementById("op-summary");
+  if (!summaryEl) return;
+
+  const { primary } = state.eventSelection;
+  const refState = state.speedReference.state;
+  const targetSpeed = state.speedReference.target_speed_kmh;
+  const { acceptedCount, suppressedCount, notProcessedCount } =
+    getEventSelectionSummary(state);
+
+  // Find the selected primary record to extract its reason code.
+  const primaryRecord = primary
+    ? state.eventSelection.records.find((r) => r.event_id === primary.event_id)
+    : null;
+  const reasonCode = primaryRecord?.applicabilityReason.code ?? null;
+
+  const primaryHtml = primary
+    ? `<code class="op-summary-event-id">${escapeHtml(primary.event_id)}</code>`
+    : `<em class="op-summary-none">none</em>`;
+
+  const targetHtml =
+    targetSpeed != null
+      ? `<span class="op-summary-target-speed">${targetSpeed} km/h</span>`
+      : `<em class="op-summary-none">–</em>`;
+
+  const stateClass = refState === "approach_target"
+    ? "op-state-approach-target"
+    : "op-state-unknown";
+
+  const reasonHtml = reasonCode
+    ? `<div class="op-summary-item">
+        <span class="op-summary-label">Reason code</span>
+        <code class="op-summary-value op-reason-code">${escapeHtml(reasonCode)}</code>
+      </div>`
+    : "";
+
+  summaryEl.innerHTML = `
+    <div class="op-summary-grid">
+      <div class="op-summary-item">
+        <span class="op-summary-label">Primary event</span>
+        <span class="op-summary-value">${primaryHtml}</span>
+      </div>
+      <div class="op-summary-item">
+        <span class="op-summary-label">Ref state</span>
+        <span class="op-summary-value ${stateClass}">${escapeHtml(refState)}</span>
+      </div>
+      <div class="op-summary-item">
+        <span class="op-summary-label">Target speed</span>
+        <span class="op-summary-value">${targetHtml}</span>
+      </div>
+      <div class="op-summary-item">
+        <span class="op-summary-label">Accepted</span>
+        <span class="op-summary-value op-count-accepted">${acceptedCount}</span>
+      </div>
+      <div class="op-summary-item">
+        <span class="op-summary-label">Suppressed</span>
+        <span class="op-summary-value op-count-suppressed">${suppressedCount}</span>
+      </div>
+      <div class="op-summary-item">
+        <span class="op-summary-label">Not processed</span>
+        <span class="op-summary-value op-count-not-processed">${notProcessedCount}</span>
+      </div>
+      ${reasonHtml}
+    </div>
+  `;
+}
+
+
 // EMULATOR DEBUG / QA UI — NOT THE DRIVER-FACING UI.
 // buildEventRow and buildGroupRows are used only by renderDebugPanel.
 // The grouping and filtering logic (accepted / suppressed / not_driver_facing)
