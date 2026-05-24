@@ -37,14 +37,18 @@
  *   evt-002  lon=37.651  speed_limit 40 km/h  east (90°, dirtype=1)   → compatible
  *   evt-003  lon=37.638  speed_limit 80 km/h  west (270°, dirtype=1)  → direction_conflict
  *   evt-004  lon=37.619  speed_limit 50 km/h  dirtype=99 (unsupported) → direction_unsupported
- *   evt-005  lon=37.655  static_camera  null   → out_of_scope / not_processed
+ *   evt-005  lon=37.655  static_camera  null   → direction_unknown (suppressed) when in window
  *   evt-006  lon=37.640, lat=55.751 (off-route ~111 m north)  null → direction_unknown, non-zero cross-track
+ *   evt-007  lon=37.648  static_camera  east (90°, dirtype=1)  → compatible; eligible when in window
+ *   evt-008  lon=37.632  static_camera  west (270°, dirtype=1) → direction_conflict (suppressed)
  *
  * Approximate along-route positions from route start:
- *   evt-004 ≈  1192 m   evt-001 ≈ 1506 m   evt-003 ≈ 2384 m
- *   evt-006 ≈  2509 m   evt-002 ≈ 3199 m   evt-005 ≈ 3450 m
+ *   evt-004 ≈  1187 m   evt-001 ≈ 1499 m   evt-008 ≈ 1999 m   evt-003 ≈ 2373 m
+ *   evt-006 ≈  2503 m   evt-007 ≈ 2998 m   evt-002 ≈ 3186 m   evt-005 ≈ 3436 m
  *
- * WIP lookahead window: [175 m, 900 m] from vehicle (EMULATOR_TUNING_DEFAULTS)
+ * WIP lookahead windows (EMULATOR_TUNING_DEFAULTS):
+ *   speed_limit:    [175 m,  900 m] from vehicle
+ *   static_camera:  [250 m, 1100 m] from vehicle
  *
  * Canon authority: docs/product/areas/
  * NOT Canon: this module and all scenario definitions are WIP.
@@ -65,14 +69,15 @@ export const SYNTHETIC_SCENARIOS: EmulatorScenario[] = [
   // S-001: no_applicable_event_all_too_far
   //
   // Vehicle at route start (progress=0%). All speed_limit events are > 900 m
-  // ahead of vehicle → all too_far. No primary event. Speed reference = unknown.
+  // ahead → too_far. All static_camera events are > 1100 m ahead → too_far.
+  // No primary event. Speed reference = unknown.
   //
-  // WIP — NOT Canon. The 900 m threshold is a WIP default, not Canon.
+  // WIP — NOT Canon. The 900 m / 1100 m thresholds are WIP defaults, not Canon.
   // (tuning-and-validation Canon truths 1, 2)
   // ---------------------------------------------------------------------------
   {
     id: "S-001",
-    title: "no_applicable_event — all speed_limit events too_far at route start",
+    title: "no_applicable_event — all events too_far at route start",
     routeProgressFraction: 0.0,
     speedKmh: 60,
 
@@ -93,12 +98,15 @@ export const SYNTHETIC_SCENARIOS: EmulatorScenario[] = [
         expectedReasonCode: "outside_max_lookahead",
         expectedReasonKind: "suppressed",
       },
-      // evt-005 is static_camera → always out_of_scope regardless of distance.
+      // evt-005 (static_camera, null direction): now processed through the
+      // applicability pipeline (Issue #65). At route start (0%), evt-005 is
+      // ~3436 m ahead → > 1100 m static_camera max_lookahead → too_far.
+      // (Previously out_of_scope before Issue #65. WIP — NOT Canon.)
       {
         eventId: "synthetic-evt-005",
-        expectedStatus: "out_of_scope",
-        expectedReasonCode: "event_type_out_of_scope",
-        expectedReasonKind: "not_processed",
+        expectedStatus: "too_far",
+        expectedReasonCode: "outside_max_lookahead",
+        expectedReasonKind: "suppressed",
       },
     ],
   },
@@ -245,27 +253,41 @@ export const SYNTHETIC_SCENARIOS: EmulatorScenario[] = [
   },
 
   // ---------------------------------------------------------------------------
-  // S-006: out_of_scope_not_processed
+  // S-006: static_camera_direction_unknown_suppressed
   //
-  // Vehicle at progress ≈ 62% (same as S-002). evt-005 is a static_camera event.
-  // Non-speed_limit events are always out_of_scope in the current selection scope
-  // regardless of distance. Visible in debug only.
+  // Vehicle at progress ≈ 62% (≈ 2906 m from route start, same region as S-002).
+  // evt-005 (static_camera, null direction) is ≈ 530 m ahead → within the
+  // static_camera lookahead window [250–1100 m]; direction cannot be evaluated
+  // (null source_direction_deg and source_dirtype) → direction_unknown → suppressed.
   //
-  // WIP — NOT Canon. out_of_scope / not_processed semantics are WIP Slice 4
-  // (event-applicability Canon truth 12; Slice 4.5 / Issue #57 WIP)
+  // Before Issue #65 evt-005 was out_of_scope / not_processed. After Issue #65
+  // it enters the applicability pipeline and is suppressed with a structured
+  // direction_unknown reason. This updated scenario documents the new behavior.
+  //
+  // S-002 at the same progress still selects evt-002 (speed_limit) as primary
+  // since speed_limit and static_camera candidates compete by distance and
+  // evt-005 is direction_unknown (suppressed, not a candidate).
+  //
+  // WIP — NOT Canon. Behavior semantics are WIP Issue #65 baseline.
+  // (event-applicability Canon truth 12; ui-model Canon truth 13)
   // ---------------------------------------------------------------------------
   {
     id: "S-006",
-    title: "out_of_scope_not_processed — evt-005 (static_camera) always not_processed in current scope",
+    title: "static_camera_direction_unknown_suppressed — evt-005 (null direction) in window at ~62%",
     routeProgressFraction: 0.62,
     speedKmh: 60,
 
     eventChecks: [
+      // evt-005 (static_camera, null direction): now in the applicability
+      // pipeline (Issue #65). At 62% progress (≈2906 m), evt-005 at ≈3436 m
+      // is ≈530 m ahead → within static_camera window [250–1100 m].
+      // Null direction → direction_unknown → suppressed. NOT driver-facing.
+      // WIP — NOT Canon. (event-applicability Canon truth 12)
       {
         eventId: "synthetic-evt-005",
-        expectedStatus: "out_of_scope",
-        expectedReasonCode: "event_type_out_of_scope",
-        expectedReasonKind: "not_processed",
+        expectedStatus: "direction_unknown",
+        expectedReasonCode: "direction_unknown",
+        expectedReasonKind: "suppressed",
       },
     ],
   },
@@ -333,6 +355,149 @@ export const SYNTHETIC_SCENARIOS: EmulatorScenario[] = [
         eventId: "synthetic-evt-002",
         expectedStatus: "behind",
         expectedReasonCode: "behind_vehicle",
+        expectedReasonKind: "suppressed",
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
+  // S-009: static_camera_accepted_as_primary
+  //
+  // WIP VALIDATION EVIDENCE for Issue #65 — NOT Product Canon.
+  //
+  // Vehicle at progress ≈ 48% (≈ 2250 m from route start).
+  // evt-007 (static_camera, east, 90°, dirtype=1) is ≈ 748 m ahead →
+  // within static_camera lookahead window [250–1100 m]; direction compatible
+  // (delta ≈ 0°) → candidate → selected as primary.
+  //
+  // At this position all speed_limit events are either behind, too_far, or
+  // direction-suppressed:
+  //   evt-002 (speed_limit, 40 km/h, east): ≈ 936 m ahead → > 900 m → too_far
+  //   evt-003 (speed_limit, west): ≈ 123 m ahead → < 175 m → too_close
+  //   evt-001, evt-004: behind
+  // So evt-007 is the only candidate and is selected as the primary advisory
+  // event context (static_camera with null target_speed_kmh).
+  //
+  // speed_reference = "unknown" because static_camera has no target_speed_kmh.
+  // This is correct per-design: advisory target speed does not apply to
+  // static_camera events in this model. (speed-reference Canon truths 4, 5)
+  //
+  // Accepted / driver-facing eligible means the event may appear in the
+  // debug/QA panel as a candidate; it is emulator/QA visibility only —
+  // NOT a final driver-facing product UI claim. NOT anti-radar. NOT an
+  // enforcement warning. NOT a legal authority claim.
+  //
+  // WIP — NOT Canon. static_camera eligibility is Issue #65 WIP baseline.
+  // Lookahead thresholds are WIP emulator defaults (tuning-and-validation
+  // Canon truths 1, 2). No numeric value promoted to Canon.
+  // ---------------------------------------------------------------------------
+  {
+    id: "S-009",
+    title: "static_camera_accepted_as_primary — evt-007 (east, compatible) selected at ~48% progress",
+    routeProgressFraction: 0.48,
+    speedKmh: 60,
+
+    expectedPrimaryEventId: "synthetic-evt-007",
+    expectedSpeedReferenceState: "unknown",
+    expectedTargetSpeedKmh: null,
+
+    eventChecks: [
+      // evt-007 (static_camera, east): compatible direction, in window → selected.
+      {
+        eventId: "synthetic-evt-007",
+        expectedStatus: "selected",
+        expectedReasonCode: "selected_primary",
+        expectedReasonKind: "accepted",
+      },
+      // evt-002 (speed_limit, east, 40 km/h): too_far at this position.
+      {
+        eventId: "synthetic-evt-002",
+        expectedStatus: "too_far",
+        expectedReasonCode: "outside_max_lookahead",
+        expectedReasonKind: "suppressed",
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
+  // S-010: static_camera_behind
+  //
+  // WIP VALIDATION EVIDENCE for Issue #65 — NOT Product Canon.
+  //
+  // Vehicle at progress ≈ 75% (≈ 3515 m from route start).
+  // evt-007 (static_camera, east) at ≈ 2998 m → ≈ 517 m behind vehicle →
+  // behind (negative along-route distance) → suppressed with behind_vehicle reason.
+  // No primary event. Speed reference = unknown.
+  //
+  // WIP — NOT Canon. "behind" status is per-session derived data.
+  // (event-applicability Canon truth 13; Issue #65 WIP baseline)
+  // ---------------------------------------------------------------------------
+  {
+    id: "S-010",
+    title: "static_camera_behind — evt-007 (east) is behind vehicle at ~75% progress",
+    routeProgressFraction: 0.75,
+    speedKmh: 60,
+
+    expectedPrimaryEventId: null,
+    expectedSpeedReferenceState: "unknown",
+
+    eventChecks: [
+      // evt-007 (static_camera, east): behind vehicle at this progress.
+      {
+        eventId: "synthetic-evt-007",
+        expectedStatus: "behind",
+        expectedReasonCode: "behind_vehicle",
+        expectedReasonKind: "suppressed",
+      },
+      // evt-002 (speed_limit, east): also behind at this progress.
+      {
+        eventId: "synthetic-evt-002",
+        expectedStatus: "behind",
+        expectedReasonCode: "behind_vehicle",
+        expectedReasonKind: "suppressed",
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
+  // S-011: static_camera_direction_conflict_suppressed
+  //
+  // WIP VALIDATION EVIDENCE for Issue #65 — NOT Product Canon.
+  //
+  // Vehicle at progress ≈ 25% (≈ 1172 m from route start).
+  // evt-008 (static_camera, west, 270°, dirtype=1) at ≈ 1999 m → ≈ 827 m ahead →
+  // within static_camera lookahead window [250–1100 m]; direction incompatible
+  // (delta ≈ 180° > reject threshold 60°) → direction_conflict → suppressed.
+  // Not driver-facing. Visible in debug / QA only. No primary event.
+  //
+  // Conservative: when direction is incompatible, prefer suppression over
+  // driver-facing display.
+  // (event-applicability Canon truth 12; ui-model Canon truth 13; Issue #65 WIP)
+  //
+  // WIP — NOT Canon. direction_conflict status and thresholds are WIP defaults.
+  // ---------------------------------------------------------------------------
+  {
+    id: "S-011",
+    title: "static_camera_direction_conflict_suppressed — evt-008 (west, delta≈180°) in window at ~25%",
+    routeProgressFraction: 0.25,
+    speedKmh: 60,
+
+    expectedPrimaryEventId: null,
+    expectedSpeedReferenceState: "unknown",
+
+    eventChecks: [
+      // evt-008 (static_camera, west, 270°): direction_conflict suppressed.
+      {
+        eventId: "synthetic-evt-008",
+        expectedStatus: "direction_conflict",
+        expectedReasonCode: "direction_conflict",
+        expectedReasonKind: "suppressed",
+      },
+      // evt-007 (static_camera, east): too_far at this progress (>1100 m).
+      {
+        eventId: "synthetic-evt-007",
+        expectedStatus: "too_far",
+        expectedReasonCode: "outside_max_lookahead",
         expectedReasonKind: "suppressed",
       },
     ],

@@ -574,8 +574,9 @@ function buildGroupRows(
     not_processed: {
       label: "○ Not processed — out of scope for this slice",
       note:
-        "Event type not processed in current slice (non-speed_limit). " +
-        "Not in selection scope. Not driver-facing.",
+        "Event type not in the current applicability processing scope " +
+        "(speed_limit and static_camera are processed; others are not). " +
+        "Not driver-facing.",
       headerClass: "group-header-not-processed",
     },
   };
@@ -709,6 +710,7 @@ function renderDebugPanel(state: SimulationState): void {
 
   const configSubset = {
     speed_limit_lookahead_WIP: EMULATOR_TUNING_DEFAULTS.lookahead.speed_limit,
+    static_camera_lookahead_WIP: EMULATOR_TUNING_DEFAULTS.lookahead.static_camera,
     direction_applicability_WIP: {
       direction_delta_accept_deg: EMULATOR_TUNING_DEFAULTS.direction_applicability.direction_delta_accept_deg,
       direction_delta_reject_above_deg: EMULATOR_TUNING_DEFAULTS.direction_applicability.direction_delta_reject_above_deg,
@@ -805,13 +807,15 @@ function renderDebugPanel(state: SimulationState): void {
     <div class="debug-block debug-block-full">
       <h3>
         Event Selection
-        <span class="wip-inline">speed_limit scope · projection-derived distance · direction compat · Slices 4.1–4.4</span>
+        <span class="wip-inline">speed_limit + static_camera scope · projection-derived distance · direction compat · Slices 4.1–4.4 · Issue #65</span>
       </h3>
       <p class="debug-note">
         Ahead/behind determined by <strong>projection-derived along-route distance</strong>.
-        Lookahead guardrails: speed_limit min <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.speed_limit.min_display_distance_m} m</strong> /
-        max <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.speed_limit.max_lookahead_m} m</strong>
-        (WIP defaults — not Canon).
+        Lookahead guardrails (WIP defaults — not Canon):
+        speed_limit min <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.speed_limit.min_display_distance_m} m</strong> /
+        max <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.speed_limit.max_lookahead_m} m</strong>;
+        static_camera min <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.static_camera.min_display_distance_m} m</strong> /
+        max <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.static_camera.max_lookahead_m} m</strong>.
         <strong>direction_conflict</strong> = within window but direction incompatible; suppressed from driver-facing selection.
         Direction compatibility columns (⟳) are <em class="dir-derived-label">per-session derived debug data</em> —
         source direction is candidate metadata only, not verified truth. WIP baseline semantics — not Canon.

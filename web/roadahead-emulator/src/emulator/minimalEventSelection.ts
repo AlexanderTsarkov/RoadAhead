@@ -44,8 +44,8 @@
  *   - Projection competitor heuristics
  *   - Full suppression reason taxonomy
  *
- * Selection scope: speed_limit events only.
- * static_camera and road_bump are out of scope.
+ * Selection scope (Issue #65): speed_limit and static_camera events.
+ * road_bump and other types remain out_of_scope until a later child issue.
  *
  * Canon authority:
  *   docs/product/areas/event-applicability/event-applicability.md
@@ -62,7 +62,10 @@
  */
 
 import type { PreparedEvent } from "../contracts/preparedEvent.js";
-import type { EmulatorTuningConfig } from "../contracts/tuningConfig.js";
+import type {
+  EmulatorTuningConfig,
+  LookaheadGuardrails,
+} from "../contracts/tuningConfig.js";
 import type { EventProjectionRecord } from "./routeProjection.js";
 import type { DirectionCompatibilityRecord } from "./directionCompatibility.js";
 import {
@@ -194,6 +197,28 @@ export interface EventSelectionResult {
 }
 
 // ---------------------------------------------------------------------------
+// Applicability processing scope
+// ---------------------------------------------------------------------------
+
+/**
+ * Return per-type lookahead guardrails from the active tuning config.
+ *
+ * Returns null for types not yet in the applicability processing scope.
+ * A null result routes the event to out_of_scope status.
+ *
+ * WIP — NOT Product Canon. Lookahead values are WIP emulator defaults.
+ * (tuning-and-validation Canon truths 1, 2)
+ */
+function getEventLookaheadGuardrails(
+  normalized_type: string,
+  config: EmulatorTuningConfig
+): LookaheadGuardrails | null {
+  if (normalized_type === "speed_limit") return config.lookahead.speed_limit;
+  if (normalized_type === "static_camera") return config.lookahead.static_camera;
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Selection logic
 // ---------------------------------------------------------------------------
 
@@ -204,24 +229,27 @@ export interface EventSelectionResult {
  * Selection rules (uses projection-derived along-route distance + direction
  * compatibility from Slice 4.2):
  *
- *  1. Non-speed_limit events → status: out_of_scope (not processed here).
- *  2. speed_limit events with no projection record → status: projection_missing.
+ *  1. Events not in the applicability processing scope (road_bump and other
+ *     non-speed_limit/non-static_camera types) → status: out_of_scope.
+ *     speed_limit and static_camera are processed through the full pipeline.
+ *     (Issue #65 — WIP extension; NOT Product Canon)
+ *  2. In-scope events with no projection record → status: projection_missing.
  *     Conservative: suppress rather than inferring distance=0 ("behind"). (Slice 4.3 WIP)
- *  3. speed_limit events with negative or zero distance → status: behind.
- *  4. speed_limit events with distance > max_lookahead_m → status: too_far.
- *     (WIP default from EmulatorTuningConfig.lookahead.speed_limit.max_lookahead_m)
- *  5. speed_limit events with 0 < distance < min_display_distance_m → status: too_close.
+ *  3. In-scope events with negative or zero distance → status: behind.
+ *  4. In-scope events with distance > max_lookahead_m → status: too_far.
+ *     Per-type WIP default from EmulatorTuningConfig.lookahead[type].max_lookahead_m.
+ *  5. In-scope events with 0 < distance < min_display_distance_m → status: too_close.
  *     (WIP Slice 4.1 simplified minimum window; not a general product rule that
  *     close events are always hidden. Future slices may revise this.)
- *     (WIP default from EmulatorTuningConfig.lookahead.speed_limit.min_display_distance_m)
- *  6. [Slice 4.2] speed_limit events within window; direction suppression rules:
+ *     Per-type WIP default from EmulatorTuningConfig.lookahead[type].min_display_distance_m.
+ *  6. [Slice 4.2] In-scope events within window; direction suppression rules:
  *     - "incompatible"  → direction_conflict   (suppressed, debug-visible)
  *     - "unknown"       → direction_unknown    (suppressed, debug-visible)
  *     - "unsupported"   → direction_unsupported (suppressed, debug-visible)
  *     Conservative: when direction applicability is ambiguous or cannot be
  *     evaluated, prefer suppression / non-claim over driver-facing display.
  *     (event-applicability Canon truth 12; ui-model Canon truth 13; WIP)
- *  7. Remaining speed_limit events → status: candidate.
+ *  7. Remaining in-scope events → status: candidate.
  *     Only "compatible" and "bidirectional" direction statuses reach this step.
  *     Bidirectional candidates are labeled in the reason string (WIP: dirtype=0
  *     treated as compatible for this baseline; semantics not Canon).
@@ -250,8 +278,6 @@ export function selectEvents(
   directionCompatibilityRecords: DirectionCompatibilityRecord[],
   config: EmulatorTuningConfig
 ): EventSelectionResult {
-  const guardrails = config.lookahead.speed_limit;
-
   const projectionMap = new Map<string, EventProjectionRecord>(
     projections.map((p) => [p.event_id, p])
   );
@@ -266,7 +292,11 @@ export function selectEvents(
     const proj = projectionMap.get(event.event_id);
     const dirCompat = dirCompatMap.get(event.event_id) ?? null;
 
-    if (event.normalized_type !== "speed_limit") {
+    // Route events not in the applicability processing scope to out_of_scope.
+    // speed_limit and static_camera are processed; road_bump and others are not.
+    // (Issue #65 — WIP extension to static_camera; NOT Product Canon)
+    const guardrails = getEventLookaheadGuardrails(event.normalized_type, config);
+    if (guardrails === null) {
       records.push({
         event_id: event.event_id,
         normalized_type: event.normalized_type,
@@ -275,7 +305,7 @@ export function selectEvents(
         projection_along_route_m: proj?.projection.best.along_route_m ?? 0,
         projection_cross_track_m: proj?.projection.best.cross_track_m ?? 0,
         status: "out_of_scope",
-        reason: `Type "${event.normalized_type}" not processed in this slice (speed_limit only).`,
+        reason: `Type "${event.normalized_type}" is not in the current applicability processing scope (speed_limit and static_camera only in this slice). WIP — NOT Canon.`,
         applicabilityReason: makeApplicabilityReason("event_type_out_of_scope"),
         directionCompatibility: null,
       });
@@ -283,7 +313,7 @@ export function selectEvents(
     }
 
     // Explicit projection_missing guard — must come before distance-based checks.
-    // If no projection record is available for a speed_limit event, suppress
+    // If no projection record is available for an in-scope event, suppress
     // conservatively rather than inferring distance=0 (which would misleadingly
     // produce a "behind" status). Debug-visible only.
     // WIP — not Canon. Maps to ApplicabilityReasonCode "missing_projection".
