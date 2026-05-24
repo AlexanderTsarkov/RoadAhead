@@ -1,0 +1,77 @@
+---
+description: RoadAhead workflow, branch hygiene, PR hygiene, and product boundary rules
+alwaysApply: true
+---
+
+# RoadAhead Workflow Rules
+
+## Mandatory Branch Hygiene
+
+Every new issue or task starts from latest `origin/main`. Never branch from another issue branch.
+
+```bash
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+git checkout -b issue/<ISSUE_NUMBER>-<short-slug>
+# For no-issue tasks: chore/<short-slug> or docs/<short-slug>
+```
+
+If a branch was accidentally created from another issue branch, rebase onto `origin/main` before opening a PR. Push with `--force-with-lease`.
+
+Before opening a PR, always run:
+
+```bash
+git fetch origin
+git diff --stat origin/main...HEAD
+git log --oneline origin/main..HEAD
+```
+
+## PR Requirements
+
+Every PR body must include:
+
+```
+Branch hygiene:
+- Started from latest origin/main: yes
+- Diff checked with origin/main...HEAD: yes
+- PR contains only current task / issue changes: yes
+```
+
+- Reference the issue number when one exists.
+- For no-issue tasks state: `No issue — maintenance / workflow task`.
+- PR body must cover: what changed, validation, boundary statement, branch hygiene block.
+- One issue → one branch → one PR unless explicitly instructed otherwise.
+
+## Product Boundaries
+
+RoadAhead is a driver-awareness assistant. It is **not** a navigator, anti-radar, legal speed-limit authority, or safety-certified system.
+
+Do not use: legal / fine / violation / capture / police / enforcement-certain / radar-detector wording anywhere in code, comments, UI, or docs.
+
+- External event data is candidate input only; it is not RoadAhead product truth.
+- Raw Datakam / OpenSpeedcam data must not be committed.
+- Provider / API / network integration is forbidden unless explicitly requested.
+
+## Canon Boundary
+
+- Product Canon lives under `docs/product/areas/`.
+- Do not edit Canon files unless explicitly requested.
+- WIP fixtures, scenario defaults, and numeric tuning values are not Canon.
+- No numeric value may be promoted to Canon by implementation or tests alone.
+
+## Validation
+
+For changes under `web/roadahead-emulator/`:
+
+```bash
+cd web/roadahead-emulator
+npm run build
+npm run scenario:sweep
+```
+
+Scenario sweep is WIP evidence only. For documentation-only changes, emulator build is not required.
+
+## Scope Control
+
+Implement only the current task. Do not perform unrelated refactors, broad UI redesigns, or add new dependencies without justification. Do not introduce provider / API / network / raw datasets / Android overlay work unless explicitly requested. When scope is ambiguous, stop and clarify before changing files.

@@ -258,23 +258,63 @@ Unless explicitly stated otherwise:
 
 - One issue = one branch = one PR.
 - Always create the branch from up-to-date `main`.
-- Branch naming convention: `issue/<number>-<short-slug>` when an issue exists; otherwise use `docs/<short-slug>`, `tool/<short-slug>`, `app/<short-slug>`, or another clear prefix.
+- Branch naming convention: `issue/<number>-<short-slug>` when an issue exists; otherwise use `docs/<short-slug>`, `tool/<short-slug>`, `app/<short-slug>`, `chore/<short-slug>`, or another clear prefix.
 - A PR must contain changes relevant to a single bounded task only.
 - Substantial technical execution slices should open as Draft PRs by default.
 - Never mix unrelated docs, tools, app code, and data changes in the same PR.
+
+### Mandatory Branch Hygiene
+
+Every new implementation issue or task **must** start from latest `origin/main`. Never branch from another issue branch.
+
+```bash
+git fetch origin
+git checkout main
+git pull --ff-only origin main
+git checkout -b issue/<ISSUE_NUMBER>-<short-slug>
+```
+
+For no-issue tasks use an appropriate prefix instead of `issue/<NUMBER>`:
+
+```bash
+git checkout -b chore/<short-slug>
+git checkout -b docs/<short-slug>
+```
+
+If a branch was accidentally created from another issue branch, rebase or cherry-pick onto `origin/main` before opening a PR. Push the rewritten branch with `--force-with-lease`:
+
+```bash
+git push origin <branch> --force-with-lease
+```
 
 ### Pre-PR Sanity Check
 
 Before opening a PR, run:
 
 ```bash
-git log --oneline main..HEAD
-git diff --stat main..HEAD
+git fetch origin
+git diff --stat origin/main...HEAD
+git log --oneline origin/main..HEAD
 ```
 
 The output must show only intended commits and intended files/areas.
 
 If unrelated commits or files are present: stop, recreate the branch from `main`, and re-apply only the intended changes.
+
+### Required PR Body Block
+
+Every PR body must include this hygiene block:
+
+```
+Branch hygiene:
+- Started from latest origin/main: yes
+- Diff checked with origin/main...HEAD: yes
+- PR contains only current task / issue changes: yes
+```
+
+- PR title and body must reference the issue number when an issue exists.
+- For no-issue maintenance tasks, PR must state: `No issue — maintenance / workflow task`.
+- PR body must include: what changed, validation evidence, boundary statement, branch hygiene block.
 
 ### Default PR Mechanics
 
@@ -290,7 +330,7 @@ Not allowed without explicit approval:
 - merge PR;
 - close PR;
 - delete branches;
-- force-push;
+- force-push (use `--force-with-lease` only when branch was intentionally rewritten);
 - rewrite shared history.
 
 ## Shared / High-Churn Document Workflow
@@ -332,6 +372,63 @@ git log --oneline origin/main -3 -- <path/to/file>
 ```
 
 If new commits touched the file, rebase or merge main and resolve conflicts before opening the PR.
+
+## RoadAhead Product Boundaries
+
+RoadAhead is a driver-awareness assistant. It is not:
+
+- a navigator or turn-by-turn routing system;
+- an anti-radar or radar-detector;
+- a legal speed-limit authority;
+- a safety-certified system.
+
+### Forbidden wording and framing
+
+Do not use any of the following in code, comments, UI, docs, or AI outputs:
+
+- legal / fine / violation / infraction / capture;
+- police / enforcement-certain / radar-detector;
+- "will catch you", "will detect police", "legally binding speed limit".
+
+### External event data policy
+
+- External event data (Datakam, OpenSpeedcam, etc.) is **candidate input only**; it is not RoadAhead product truth.
+- Raw Datakam / OpenSpeedcam data files must not be committed to the repo.
+- Provider/API/network integration work is **forbidden** unless explicitly requested in a reviewed task.
+- If provider data is ever permitted, it is geometry-only and must not become RoadAhead speed, ETA, traffic, or posting truth.
+
+## Product Canon / WIP Boundary
+
+- Product Canon lives under `docs/product/areas/`.
+- Do not edit Product Canon files unless explicitly requested.
+- WIP implementation, fixtures, scenario checks, and numeric tuning defaults are **not Canon**.
+- No numeric tuning value may be promoted to Canon by implementation or tests alone; promotion requires an explicit decision.
+- If WIP / research and Canon disagree, Canon wins.
+
+## Phase 0 Emulator Validation
+
+For any changes under `web/roadahead-emulator/`, run:
+
+```bash
+cd web/roadahead-emulator
+npm run build
+npm run scenario:sweep
+```
+
+Scenario sweep output is WIP validation evidence only. It is not a Canon validation gate.
+
+For documentation-only or non-emulator changes, emulator build is not required.
+
+## Scope Control
+
+Implement only the current task. Do not:
+
+- perform unrelated refactors;
+- redesign UI areas outside the current task;
+- add new dependencies without justification;
+- introduce provider/API/network/raw datasets/Android overlay work unless explicitly requested.
+
+When a task description is vague or could expand into adjacent areas, stop and clarify scope before proceeding.
 
 ## Cursor Prompt Contract
 
