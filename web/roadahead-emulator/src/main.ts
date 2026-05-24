@@ -689,63 +689,55 @@ function attachControls(): void {
     render();
   });
 
-  // ── GeoJSON route file input (Issue #79 / Slice 4.10) ───────────────────
-  // Loads a local GeoJSON file as the active route geometry.
-  // Route geometry only — no event import, no speed limits, no provider data.
-  // On parse error: shows error, preserves current active route.
-  // On success: sets active route, resets progress, clears scenario, pauses.
-  // NOT navigation. NOT routing. NOT provider data. NOT Product Canon.
-  const geoJsonFileInput = document.getElementById(
-    "geojson-file-input"
-  ) as HTMLInputElement | null;
-  geoJsonFileInput?.addEventListener("change", () => {
-    const file = geoJsonFileInput.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const text = evt.target?.result;
-      if (typeof text !== "string") {
-        routeImportError = "Failed to read file contents.";
-        render();
-        return;
-      }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(text);
-      } catch (e) {
-        routeImportError = `JSON parse error: ${e instanceof Error ? e.message : String(e)}`;
-        render();
-        return;
-      }
-      try {
-        const imported = parseUserGeoJsonRoute(parsed, file.name);
-        // Success: set active route, reset progress, clear scenario, pause.
-        activeRoute = imported;
-        activeRouteSource = { kind: "geojson", filename: file.name };
-        routeImportError = null;
-        pausePlayback();
-        clearSelectedScenario();
-        routeProgressPct = 0;
-        const slider = document.getElementById(
-          "progress-slider"
-        ) as HTMLInputElement | null;
-        if (slider) slider.value = "0";
-        render();
-      } catch (e) {
-        routeImportError = e instanceof Error ? e.message : String(e);
-        render();
-      }
-      // Reset file input so the same file can be re-loaded if needed.
-      geoJsonFileInput.value = "";
-    };
-    reader.readAsText(file);
-  });
+}
 
-  // ── Reset to synthetic route (Issue #79 / Slice 4.10) ───────────────────
-  document
-    .getElementById("reset-to-synthetic-btn")
-    ?.addEventListener("click", () => {
-      resetToSyntheticRoute();
+// ---------------------------------------------------------------------------
+// Route import listener helpers (Issue #79 / Slice 4.10 — listener fix)
+//
+// Route import controls are recreated on every render() call because
+// renderRouteImportSection() sets section.innerHTML. Attaching listeners
+// once in attachControls() would wire stale nodes that are discarded on the
+// first render(). Instead, these named handler functions are wired to fresh
+// nodes after each innerHTML update via attachRouteImportListeners().
+//
+// Route geometry only — no event import, no speed limits, no provider data.
+// NOT navigation. NOT routing. NOT provider data. NOT Product Canon.
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a change event on the GeoJSON file input.
+ *
+ * Reads the selected file, parses it as GeoJSON, and either:
+ *   - success: sets activeRoute, resets progress, clears scenario, pauses, renders;
+ *   - error: sets routeImportError (parse/validation), preserves current route, renders.
+ *
+ * Route geometry import — Issue #79 / Slice 4.10.
+ */
+function handleGeoJsonFileInputChange(input: HTMLInputElement): void {
+  const file = input.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    const text = evt.target?.result;
+    if (typeof text !== "string") {
+      routeImportError = "Failed to read file contents.";
+      render();
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      routeImportError = `JSON parse error: ${e instanceof Error ? e.message : String(e)}`;
+      render();
+      return;
+    }
+    try {
+      const imported = parseUserGeoJsonRoute(parsed, file.name);
+      // Success: set active route, reset progress, clear scenario, pause.
+      activeRoute = imported;
+      activeRouteSource = { kind: "geojson", filename: file.name };
+      routeImportError = null;
       pausePlayback();
       clearSelectedScenario();
       routeProgressPct = 0;
@@ -754,7 +746,60 @@ function attachControls(): void {
       ) as HTMLInputElement | null;
       if (slider) slider.value = "0";
       render();
-    });
+    } catch (e) {
+      routeImportError = e instanceof Error ? e.message : String(e);
+      render();
+    }
+    // Reset file input so the same file can be re-loaded if needed.
+    input.value = "";
+  };
+  reader.readAsText(file);
+}
+
+/**
+ * Handle a click on the "Reset to synthetic route" button.
+ *
+ * Resets activeRoute to SYNTHETIC_ROUTE, clears import error,
+ * pauses playback, clears selected scenario, and resets progress to 0.
+ *
+ * Route geometry reset — Issue #79 / Slice 4.10.
+ */
+function handleResetToSyntheticRouteClick(): void {
+  resetToSyntheticRoute();
+  pausePlayback();
+  clearSelectedScenario();
+  routeProgressPct = 0;
+  const slider = document.getElementById(
+    "progress-slider"
+  ) as HTMLInputElement | null;
+  if (slider) slider.value = "0";
+  render();
+}
+
+/**
+ * Attach route import listeners to freshly rendered controls inside `section`.
+ *
+ * Must be called after section.innerHTML is set (nodes are freshly created).
+ * Queries controls from the section element to avoid stale document lookups.
+ *
+ * Called at the end of renderRouteImportSection() on every render cycle,
+ * because innerHTML replacement discards all previously attached listeners.
+ * This is the same pattern used by attachDebugFilterListeners().
+ *
+ * Route geometry import — Issue #79 / Slice 4.10.
+ */
+function attachRouteImportListeners(section: HTMLElement): void {
+  const fileInput = section.querySelector<HTMLInputElement>(
+    "#geojson-file-input"
+  );
+  fileInput?.addEventListener("change", () => {
+    handleGeoJsonFileInputChange(fileInput);
+  });
+
+  const resetBtn = section.querySelector<HTMLButtonElement>(
+    "#reset-to-synthetic-btn"
+  );
+  resetBtn?.addEventListener("click", handleResetToSyntheticRouteClick);
 }
 
 function clampSpeed(v: number): number {
@@ -1614,6 +1659,11 @@ function renderRouteImportSection(): void {
       Minimum 2 coordinate pairs required.
     </p>
   `;
+
+  // Attach listeners to freshly created controls after innerHTML replacement.
+  // Must happen after every render because innerHTML discards old nodes and
+  // their event listeners. Same pattern as attachDebugFilterListeners().
+  attachRouteImportListeners(section);
 }
 
 // ---------------------------------------------------------------------------
