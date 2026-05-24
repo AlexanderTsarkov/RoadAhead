@@ -1555,3 +1555,111 @@ code {
   white-space: pre;
   overflow-x: auto;
 }
+
+/* ── Route import section (Issue #79 / Slice 4.10) ───────────────────────── */
+
+/*
+ * Route geometry import section — operator / QA UI only.
+ * Local file, geometry only. Not navigation. Not routing. Not Product Canon.
+ */
+
+.route-import-section {
+  border-left: 4px solid #7a5c1a;
+  background: #fdfaf3;
+}
+
+.route-import-disclaimer {
+  font-size: 0.8rem;
+  color: #5a4800;
+  background: #fff9e6;
+  border: 1px solid #e6cc80;
+  border-radius: 4px;
+  padding: 0.45rem 0.65rem;
+  margin-bottom: 0.75rem;
+  line-height: 1.5;
+}
+
+.route-import-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+}
+
+.route-import-file-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #3a3000;
+  white-space: nowrap;
+}
+
+.route-import-file-input {
+  font-size: 0.8rem;
+  color: #333;
+  flex: 1;
+  min-width: 0;
+}
+
+.reset-synthetic-btn {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #fff;
+  background: #7a5c1a;
+  border: none;
+  border-radius: 4px;
+  padding: 0.28rem 0.65rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.reset-synthetic-btn:hover:not(:disabled) {
+  background: #5c4412;
+}
+
+.reset-synthetic-btn:disabled {
+  background: #bfb080;
+  cursor: not-allowed;
+}
+
+.route-source-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  margin-bottom: 0.35rem;
+}
+
+.route-source-label-text {
+  color: #666;
+  white-space: nowrap;
+}
+
+.route-source-synthetic {
+  color: #555;
+  font-style: italic;
+}
+
+.route-source-imported {
+  color: #2a6000;
+  font-weight: 600;
+}
+
+.route-import-error-msg {
+  font-size: 0.8rem;
+  color: #8a1f00;
+  background: #fff0ed;
+  border: 1px solid #e8a090;
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  margin-bottom: 0.4rem;
+  line-height: 1.5;
+}
+
+.route-import-format-note {
+  font-size: 0.75rem;
+  color: #777;
+  font-style: italic;
+  line-height: 1.5;
+}
