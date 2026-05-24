@@ -1,7 +1,8 @@
 /**
  * Synthetic prepared event fixture — Phase 0 emulator (Slice 2 / Issue #44;
  * extended in Slice 4.2 / Issue #51 for direction compatibility baseline;
- * extended in Slice 4.5 / Issue #57 for applicability fixture coverage)
+ * extended in Slice 4.5 / Issue #57 for applicability fixture coverage;
+ * extended in Issue #65 for static_camera eligibility baseline)
  *
  * SYNTHETIC FIXTURE — NOT REAL DATA
  * These events are hand-authored synthetic records. They are NOT derived from,
@@ -74,7 +75,7 @@ import type { PreparedEvent } from "../contracts/preparedEvent.js";
 /**
  * Synthetic prepared candidate events for the Phase 0 emulator.
  *
- * Six synthetic events placed on or near the test route defined in
+ * Nine synthetic events placed on or near the test route defined in
  * routeGeometry.synthetic.ts.
  *
  * Debug states exercised by this fixture set:
@@ -91,16 +92,30 @@ import type { PreparedEvent } from "../contracts/preparedEvent.js";
  *   synthetic-evt-004 — unsupported dirtype (source_dirtype=99) →
  *                       direction_unsupported (suppressed from driver-facing)
  *                       (Slice 4.5 / Issue #57 — SYNTHETIC, WIP, not Canon)
- *   synthetic-evt-005 — static_camera type → out_of_scope / not_processed
- *                       (not driver-facing; no camera behavior implemented)
- *                       (Slice 4.5 / Issue #57 — SYNTHETIC, WIP, not Canon)
+ *   synthetic-evt-005 — static_camera, null direction → direction_unknown
+ *                       (suppressed from driver-facing; previously out_of_scope
+ *                       before Issue #65 extended the applicability pipeline)
+ *                       (Slice 4.5 / Issue #57; Issue #65 — SYNTHETIC, WIP, not Canon)
  *   synthetic-evt-006 — off-route placement (lat=55.751 vs route lat=55.750)
  *                       → non-zero cross-track distance visible in debug;
  *                       direction_unknown (null metadata); debug only
  *                       (Slice 4.5 / Issue #57 — SYNTHETIC, WIP, not Canon)
+ *   synthetic-evt-007 — static_camera, eastbound (source_direction_deg=90,
+ *                       source_dirtype=1) → compatible with eastbound route;
+ *                       driver-facing eligible when in window and no speed_limit
+ *                       candidate is closer
+ *                       (Issue #65 — SYNTHETIC, WIP, not Canon)
+ *   synthetic-evt-008 — static_camera, westbound (source_direction_deg=270,
+ *                       source_dirtype=1) → direction_conflict (suppressed)
+ *                       (Issue #65 — SYNTHETIC, WIP, not Canon)
+ *   synthetic-evt-009 — static_camera, off-route (~111 m north, lat=55.751),
+ *                       null direction → direction_unknown (suppressed); non-zero
+ *                       cross-track confirms off-route static_camera is processed
+ *                       through the pipeline, not blanket out_of_scope by type
+ *                       (Issue #65 — SYNTHETIC, WIP, not Canon)
  *
  * All instances are candidate observations — not verified RoadAhead truth.
- * New Slice 4.5 events are synthetic fixtures for debug/QA coverage only.
+ * All fixture events are synthetic records for debug/QA coverage only.
  * They are not verified road events and are not Product Canon.
  */
 export const SYNTHETIC_PREPARED_EVENTS: PreparedEvent[] = [
@@ -208,18 +223,22 @@ export const SYNTHETIC_PREPARED_EVENTS: PreparedEvent[] = [
   },
 
   {
-    // SYNTHETIC — Slice 4.5 / Issue #57
-    // Exercises: out_of_scope / not_processed debug state.
+    // SYNTHETIC — Slice 4.5 / Issue #57; updated behavior in Issue #65
+    // Exercises: static_camera with null direction — direction_unknown (suppressed)
+    // when inside the static_camera lookahead window; too_far when beyond it.
     //
-    // normalized_type="static_camera" is a non-speed_limit type within the
-    // PreparedEvent contract scope (event-data Canon truth 6).
-    // The existing selection logic in minimalEventSelection.ts routes all
-    // non-speed_limit events to EventStatus = "out_of_scope" →
-    // ApplicabilityReasonCode = "event_type_out_of_scope" → not_processed kind.
-    // Not driver-facing. No camera behavior is implemented in this slice.
+    // After Issue #65, static_camera events are processed through the full
+    // applicability pipeline (projection → direction → lookahead). This event
+    // has null source_direction_deg and source_dirtype → direction status:
+    // unknown → suppressed from driver-facing selection (conservative).
     //
-    // target_speed_kmh=null: cameras do not carry a target speed in this model.
-    // WIP — NOT Canon. No camera behavior or enforcement semantics added.
+    // At route start (0% progress): ≈3436 m ahead → > 1100 m max_lookahead
+    // for static_camera → too_far / suppressed.
+    // At ~62% progress (≈2906 m): ≈530 m ahead → in [250–1100 m] window →
+    // direction_unknown / suppressed.
+    //
+    // target_speed_kmh=null: cameras do not carry an advisory target speed
+    // in this model. No enforcement semantics. WIP — NOT Canon.
     event_id: "synthetic-evt-005",
     source: "synthetic_fixture",
     source_event_id: "synthetic-005",
@@ -235,6 +254,133 @@ export const SYNTHETIC_PREPARED_EVENTS: PreparedEvent[] = [
     source_direction_deg: null,
     source_dirtype: null,
     imported_at: "2026-05-20T00:00:00Z",
+  },
+
+  // ---------------------------------------------------------------------------
+  // Issue #65 additions — STATIC_CAMERA ELIGIBILITY BASELINE
+  //
+  // Two new static_camera records to exercise direction-compatible / conflict
+  // outcomes for the Issue #65 applicability extension.
+  // Synthetic only — NOT real camera locations. NOT Product Canon.
+  // No route-specific derived fields stored here.
+  // ---------------------------------------------------------------------------
+
+  {
+    // SYNTHETIC — Issue #65 — static_camera eligibility baseline
+    // Exercises: static_camera candidate accepted / driver-facing eligible.
+    //
+    // normalized_type="static_camera" with source_dirtype=1 (directional) and
+    // source_direction_deg=90 (eastbound). The synthetic route is eastbound
+    // (~90°); delta ≈ 0° → direction status: compatible.
+    // When in the static_camera lookahead window [250–1100 m] and the vehicle
+    // is in the correct approach position, this event can become a candidate
+    // and be selected as the primary advisory event context.
+    //
+    // target_speed_kmh=null: static_camera events do not carry an advisory
+    // target speed in this model. If selected as primary, speedReference will
+    // be "unknown" (no target speed). WIP — NOT Canon. No enforcement semantics.
+    //
+    // Approximate along-route position: ~2998 m from route start.
+    // Useful progress range for driver-facing eligible: ~40–58% (vehicle
+    // 250–1100 m behind this event, all speed_limit candidates suppressed).
+    // WIP — NOT Canon. Numeric defaults are WIP emulator defaults only.
+    event_id: "synthetic-evt-007",
+    source: "synthetic_fixture",
+    source_event_id: "synthetic-007",
+    source_dataset_version: "synthetic-fixture-v0",
+    raw_type: null,
+    normalized_type: "static_camera",
+    // lon=37.648: placed in segment 3 (37.645–37.660), ~2998 m from route start.
+    // Synthetic coordinates only — not a real camera location.
+    lon: 37.648,
+    lat: 55.750,
+    // null: cameras do not carry an advisory target speed in this model.
+    target_speed_kmh: null,
+    // Eastbound (90°) — compatible with the eastbound synthetic route.
+    // Synthetic value — not from any real source.
+    source_direction_deg: 90,
+    source_dirtype: 1,
+    imported_at: "2026-05-24T00:00:00Z",
+  },
+
+  {
+    // SYNTHETIC — Issue #65 — static_camera eligibility baseline
+    // Exercises: static_camera direction_conflict suppressed.
+    //
+    // normalized_type="static_camera" with source_dirtype=1 (directional) and
+    // source_direction_deg=270 (westbound). The synthetic route is eastbound
+    // (~90°); delta ≈ 180° → direction status: incompatible (direction_conflict).
+    // When in the static_camera lookahead window this event is suppressed from
+    // driver-facing selection; visible in debug / QA only.
+    //
+    // target_speed_kmh=null: no advisory target speed. WIP — NOT Canon.
+    //
+    // Approximate along-route position: ~1999 m from route start.
+    // Useful progress range for direction_conflict check: ~16–34% (vehicle
+    // 250–1100 m behind this event).
+    // WIP — NOT Canon. Numeric defaults are WIP emulator defaults only.
+    event_id: "synthetic-evt-008",
+    source: "synthetic_fixture",
+    source_event_id: "synthetic-008",
+    source_dataset_version: "synthetic-fixture-v0",
+    raw_type: null,
+    normalized_type: "static_camera",
+    // lon=37.632: placed in segment 2 (37.630–37.645), ~1999 m from route start.
+    // Synthetic coordinates only — not a real camera location.
+    lon: 37.632,
+    lat: 55.750,
+    target_speed_kmh: null,
+    // Westbound (270°) — incompatible with the eastbound synthetic route.
+    // delta ≈ 180° > reject threshold → direction_conflict.
+    // Synthetic value — not from any real source.
+    source_direction_deg: 270,
+    source_dirtype: 1,
+    imported_at: "2026-05-24T00:00:00Z",
+  },
+
+  {
+    // SYNTHETIC — Issue #65 — static_camera off-route / cross-track coverage
+    // Exercises: off-route static_camera candidate — non-zero cross-track
+    // distance, direction_unknown suppression.
+    //
+    // Placed ~111 m north of the route (lat=55.751 vs route lat=55.750;
+    // 0.001° × 111,320 m/° ≈ 111 m cross-track). The event projects to the
+    // nearest on-route point, producing a clearly non-zero cross-track value
+    // in the debug table.
+    //
+    // normalized_type="static_camera": confirms that off-route static_camera
+    // events are processed through the applicability pipeline (not blanket
+    // out_of_scope by type) and are suppressed by an existing reason — here
+    // direction_unknown (null direction metadata). This is consistent with the
+    // existing reason model used for evt-006 (speed_limit, off-route).
+    //
+    // No new cross-track suppression algorithm is introduced. The event receives
+    // a projection record with non-zero cross_track_m and is suppressed by the
+    // direction_unknown guard (conservative: null direction → suppressed).
+    // Cross-track threshold for off-route suppression is deferred to a later
+    // child issue under #48. WIP — NOT Canon.
+    //
+    // target_speed_kmh=null: no advisory target speed. No enforcement semantics.
+    //
+    // Approximate along-route position: ~2687 m from route start (segment 2,
+    // 37.630–37.645, ~111 m north of route).
+    // Useful progress range for window check: ~32–51% (vehicle 250–1100 m behind).
+    event_id: "synthetic-evt-009",
+    source: "synthetic_fixture",
+    source_event_id: "synthetic-009",
+    source_dataset_version: "synthetic-fixture-v0",
+    raw_type: null,
+    normalized_type: "static_camera",
+    // lon=37.643, lat=55.751: ~111 m north of the synthetic route.
+    // Projects to the nearest on-route point; cross_track_m ≈ 111 m.
+    // Synthetic coordinates only — not a real camera location.
+    lon: 37.643,
+    lat: 55.751,
+    target_speed_kmh: null,
+    // Null direction — direction status will be unknown → suppressed.
+    source_direction_deg: null,
+    source_dirtype: null,
+    imported_at: "2026-05-24T00:00:00Z",
   },
 
   {
