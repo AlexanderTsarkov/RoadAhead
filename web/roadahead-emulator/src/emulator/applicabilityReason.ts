@@ -82,6 +82,12 @@ export type ApplicabilityReasonKind =
  *   missing_direction_record   — no direction compatibility record was available;
  *                                conservative suppression (distinct from direction_unknown
  *                                which has a computed record with unknown status).
+ *   route_projection_cross_track_rejected — cross-track distance from the event to the
+ *                                nearest route segment exceeds the WIP rejection threshold
+ *                                (route_projection_reject_m from EmulatorTuningConfig).
+ *                                Event is off-route; suppressed from driver-facing selection
+ *                                before direction compatibility is evaluated.
+ *                                WIP / not Canon. (Issue #67 baseline)
  */
 export type ApplicabilityReasonCode =
   | "selected_primary"
@@ -94,7 +100,8 @@ export type ApplicabilityReasonCode =
   | "direction_unsupported"
   | "event_type_out_of_scope"
   | "missing_projection"
-  | "missing_direction_record";
+  | "missing_direction_record"
+  | "route_projection_cross_track_rejected";
 
 /**
  * Structured applicability suppression / acceptance reason.
@@ -207,6 +214,11 @@ const REASON_TABLE: Record<
   missing_direction_record: {
     kind: "suppressed",
     label: "missing_direction_record",
+    is_driver_facing_eligible: false,
+  },
+  route_projection_cross_track_rejected: {
+    kind: "suppressed",
+    label: "route_projection_cross_track_rejected",
     is_driver_facing_eligible: false,
   },
 };

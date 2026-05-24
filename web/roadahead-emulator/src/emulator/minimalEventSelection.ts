@@ -15,8 +15,29 @@
  * (event-applicability Canon truth 13; event-data Canon truth 11)
  *
  * All reason codes, kind values, and the is_driver_facing_eligible flag are WIP
- * baseline semantics for Slices 4.1–4.3 only — NOT Product Canon.
+ * baseline semantics for Slices 4.1–4.3 + Issue #67 only — NOT Product Canon.
  * The full applicability taxonomy is deferred to later child issues under #48.
+ *
+ * CROSS-TRACK / OFF-ROUTE SUPPRESSION BASELINE (Issue #67)
+ * After projection exists and the projection_missing guard passes, cross-track
+ * distance (cross_track_m) is evaluated before direction compatibility.
+ * If cross_track_m exceeds the WIP rejection threshold
+ * (config.direction_applicability.route_projection_reject_m, WIP default 50 m),
+ * the event is suppressed with:
+ *   EventStatus:              off_route_cross_track
+ *   ApplicabilityReasonCode:  route_projection_cross_track_rejected
+ *   kind:                     suppressed
+ *   is_driver_facing_eligible: false
+ *
+ * This suppression runs after distance-based checks (behind / too_far / too_close)
+ * but before direction compatibility can allow candidate/selected behavior.
+ * An off-route event with null direction is now suppressed for cross-track before
+ * direction_unknown — this is the new precedence for Issue #67.
+ *
+ * The threshold (route_projection_reject_m = 50 m WIP) is reused from the
+ * existing direction_applicability config. No new numeric constant is added.
+ * This value is WIP emulator default — NOT Product Canon.
+ * (tuning-and-validation Canon truths 1, 2; Issue #67 — not Canon)
  *
  * DIRECTION COMPATIBILITY BASELINE (Slice 4.2)
  * Event selection incorporates direction compatibility results. The mapping
@@ -108,11 +129,20 @@ import {
  * facing selection rather than falling through to a misleading distance=0
  * "behind" status. Debug-visible.
  * WIP — not Canon. Maps to ApplicabilityReasonCode "missing_projection".
+ *
+ * "off_route_cross_track" added in Issue #67. Cross-track distance from the event
+ * to the nearest route segment exceeds the WIP rejection threshold
+ * (route_projection_reject_m). Event is off-route; suppressed before direction
+ * compatibility is evaluated. An off-route event with null direction may now be
+ * suppressed for cross-track before direction_unknown — this is the new precedence
+ * for Issue #67. WIP — not Canon. Maps to ApplicabilityReasonCode
+ * "route_projection_cross_track_rejected".
  */
 export type EventStatus =
   | "behind" // event is behind the vehicle (negative along-route distance)
   | "too_far" // ahead but beyond WIP max_lookahead_m (simplified window only)
   | "too_close" // ahead but inside WIP min_display_distance_m (simplified window only)
+  | "off_route_cross_track" // cross-track distance exceeds WIP reject threshold — suppressed before direction check (Issue #67 WIP)
   | "direction_conflict" // within window; direction incompatible — suppressed (Slice 4.2 WIP)
   | "direction_unknown" // within window; direction could not be evaluated — suppressed (Slice 4.2 WIP)
   | "direction_unsupported" // within window; dirtype not handled — suppressed (Slice 4.2 WIP)
@@ -242,7 +272,17 @@ function getEventLookaheadGuardrails(
  *     (WIP Slice 4.1 simplified minimum window; not a general product rule that
  *     close events are always hidden. Future slices may revise this.)
  *     Per-type WIP default from EmulatorTuningConfig.lookahead[type].min_display_distance_m.
- *  6. [Slice 4.2] In-scope events within window; direction suppression rules:
+ *  5a.[Issue #67] In-scope events within the distance window; cross-track check:
+ *     If cross_track_m > config.direction_applicability.route_projection_reject_m
+ *     (WIP default 50 m) → status: off_route_cross_track (suppressed, debug-visible).
+ *     This runs after projection exists and after distance-based checks, but before
+ *     direction compatibility can allow candidate/selected behavior.
+ *     An off-route event with null direction may be suppressed here (off_route_cross_track)
+ *     before reaching the direction_unknown guard — this is the new Issue #67 precedence.
+ *     Threshold is reused from existing config (route_projection_reject_m = 50 m WIP).
+ *     WIP emulator default — NOT Canon. (tuning-and-validation Canon truths 1, 2)
+ *  6. [Slice 4.2] In-scope events within window, cross-track below threshold;
+ *     direction suppression rules:
  *     - "incompatible"  → direction_conflict   (suppressed, debug-visible)
  *     - "unknown"       → direction_unknown    (suppressed, debug-visible)
  *     - "unsupported"   → direction_unsupported (suppressed, debug-visible)
@@ -379,6 +419,38 @@ export function selectEvents(
         status: "too_close",
         reason: `${distanceM.toFixed(0)} m ahead — inside min display window (< ${guardrails.min_display_distance_m} m). WIP Slice 4.1 simplified window only; not a general product rule that close events are always hidden. Future urgency/applicability behavior may revise this. (WIP default, not Canon)`,
         applicabilityReason: makeApplicabilityReason("inside_min_display_window"),
+        directionCompatibility: dirCompat,
+      });
+    } else if (
+      cross_track_m > config.direction_applicability.route_projection_reject_m
+    ) {
+      // Cross-track / off-route suppression (Issue #67).
+      // Event is within the distance window but projects to the route at a
+      // cross-track distance exceeding the WIP rejection threshold.
+      // Suppressed before direction compatibility is evaluated — an off-route
+      // event with null direction will receive off_route_cross_track here rather
+      // than direction_unknown (new Issue #67 precedence).
+      // Threshold: config.direction_applicability.route_projection_reject_m
+      // WIP default: 50 m. NOT Canon. (tuning-and-validation Canon truths 1, 2)
+      // Debug-visible. Not driver-facing.
+      // (event-applicability Canon truth 12; ui-model Canon truth 13)
+      records.push({
+        event_id: event.event_id,
+        normalized_type: event.normalized_type,
+        target_speed_kmh: event.target_speed_kmh,
+        distance_m: distanceM,
+        projection_along_route_m: along_route_m,
+        projection_cross_track_m: cross_track_m,
+        status: "off_route_cross_track",
+        reason:
+          `${distanceM.toFixed(0)} m ahead — cross-track distance ${cross_track_m.toFixed(1)} m ` +
+          `exceeds WIP rejection threshold (route_projection_reject_m = ` +
+          `${config.direction_applicability.route_projection_reject_m} m). ` +
+          `Off-route: suppressed from driver-facing selection; debug-visible. ` +
+          `(WIP emulator default — not Canon; Issue #67 baseline; per-session derived debug data)`,
+        applicabilityReason: makeApplicabilityReason(
+          "route_projection_cross_track_rejected"
+        ),
         directionCompatibility: dirCompat,
       });
     } else if (dirCompat?.status === "incompatible") {
