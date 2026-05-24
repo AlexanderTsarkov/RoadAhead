@@ -2,7 +2,8 @@
  * Synthetic prepared event fixture — Phase 0 emulator (Slice 2 / Issue #44;
  * extended in Slice 4.2 / Issue #51 for direction compatibility baseline;
  * extended in Slice 4.5 / Issue #57 for applicability fixture coverage;
- * extended in Issue #65 for static_camera eligibility baseline)
+ * extended in Issue #65 for static_camera eligibility baseline;
+ * extended in Issue #75 for road_bump / hazardous road segment eligibility baseline)
  *
  * SYNTHETIC FIXTURE — NOT REAL DATA
  * These events are hand-authored synthetic records. They are NOT derived from,
@@ -75,7 +76,7 @@ import type { PreparedEvent } from "../contracts/preparedEvent.js";
 /**
  * Synthetic prepared candidate events for the Phase 0 emulator.
  *
- * Nine synthetic events placed on or near the test route defined in
+ * Eleven synthetic events placed on or near the test route defined in
  * routeGeometry.synthetic.ts.
  *
  * Debug states exercised by this fixture set:
@@ -118,6 +119,18 @@ import type { PreparedEvent } from "../contracts/preparedEvent.js";
  *                       cross-track before direction_unknown (Issue #67 precedence).
  *                       (Issue #65 — pipeline inclusion; Issue #67 — off-route baseline;
  *                       SYNTHETIC, WIP, not Canon)
+ *   synthetic-evt-010 — road_bump, on-route, eastbound (source_direction_deg=90,
+ *                       source_dirtype=1) → compatible with eastbound route;
+ *                       driver-facing eligible when in road_bump window [100–500 m]
+ *                       and no closer speed_limit/static_camera candidate exists.
+ *                       target_speed_kmh=null: road_bump events do not carry an
+ *                       advisory target speed. speedReference = unknown if selected.
+ *                       (Issue #75 — road_bump eligibility baseline; SYNTHETIC, WIP, not Canon)
+ *   synthetic-evt-011 — road_bump, on-route, westbound (source_direction_deg=270,
+ *                       source_dirtype=1) → direction_conflict with eastbound route
+ *                       (delta ≈ 180° > reject threshold 60°). Suppressed from
+ *                       driver-facing selection; visible in debug / QA only.
+ *                       (Issue #75 — road_bump eligibility baseline; SYNTHETIC, WIP, not Canon)
  *
  * All instances are candidate observations — not verified RoadAhead truth.
  * All fixture events are synthetic records for debug/QA coverage only.
@@ -427,5 +440,105 @@ export const SYNTHETIC_PREPARED_EVENTS: PreparedEvent[] = [
     source_direction_deg: null,
     source_dirtype: null,
     imported_at: "2026-05-20T00:00:00Z",
+  },
+
+  // ---------------------------------------------------------------------------
+  // Issue #75 additions — ROAD_BUMP / HAZARDOUS ROAD SEGMENT ELIGIBILITY BASELINE
+  //
+  // Two new road_bump records to prove that road_bump candidate events enter the
+  // existing applicability pipeline (not blanket out_of_scope by type) and pass
+  // through projection → distance → lookahead → cross-track → direction checks.
+  //
+  // road_bump WIP lookahead window: [100 m, 500 m] (EMULATOR_TUNING_DEFAULTS).
+  // road_bump events do NOT carry an advisory target speed — target_speed_kmh=null.
+  // speedReference = "unknown" when road_bump is the selected primary event.
+  // No fake target speed is introduced. Full display semantics deferred to #76.
+  //
+  // These records are purely synthetic. NOT real Datakam / OpenSpeedcam rows.
+  // NOT verified road events. NOT Product Canon. No legal / enforcement semantics.
+  // SYNTHETIC, WIP — advisory candidate context only.
+  // ---------------------------------------------------------------------------
+
+  {
+    // SYNTHETIC — Issue #75 — road_bump eligibility baseline
+    // Exercises: road_bump accepted as primary / driver-facing advisory context.
+    //
+    // normalized_type="road_bump" with source_dirtype=1 (directional) and
+    // source_direction_deg=90 (eastbound). The synthetic route is eastbound (~90°);
+    // delta ≈ 0° → direction status: compatible.
+    // When in the road_bump lookahead window [100–500 m] and the vehicle is in the
+    // correct approach position, this event can become a candidate and be selected
+    // as the primary advisory event context.
+    //
+    // target_speed_kmh=null: road_bump events do not carry an advisory target speed
+    // in this model. If selected as primary, speedReference will be "unknown"
+    // (no target speed is fabricated). This is correct per-design.
+    // WIP — NOT Canon. No enforcement semantics.
+    //
+    // Approximate along-route position: ~3701 m from route start.
+    // Placed in segment 4 (37.645–37.660), near segment end.
+    // Useful progress range for driver-facing eligible: ~68–74% (vehicle
+    // 100–500 m behind this event, no closer speed_limit/static_camera candidate
+    // exists).
+    // WIP — NOT Canon. Numeric defaults are WIP emulator defaults only.
+    event_id: "synthetic-evt-010",
+    source: "synthetic_fixture",
+    source_event_id: "synthetic-010",
+    source_dataset_version: "synthetic-fixture-v0",
+    raw_type: null,
+    normalized_type: "road_bump",
+    // lon=37.659: in segment 4 (37.645–37.660), ~3701 m from route start.
+    // Synthetic coordinates only — not a real road hazard location.
+    lon: 37.659,
+    lat: 55.750,
+    // null: road_bump events do not carry an advisory target speed in this model.
+    // No target speed is fabricated when this event is selected as primary.
+    target_speed_kmh: null,
+    // Eastbound (90°) — compatible with the eastbound synthetic route.
+    // Synthetic value — not from any real source.
+    source_direction_deg: 90,
+    source_dirtype: 1,
+    imported_at: "2026-05-24T00:00:00Z",
+  },
+
+  {
+    // SYNTHETIC — Issue #75 — road_bump eligibility baseline
+    // Exercises: road_bump direction_conflict suppressed.
+    //
+    // normalized_type="road_bump" with source_dirtype=1 (directional) and
+    // source_direction_deg=270 (westbound). The synthetic route is eastbound (~90°);
+    // delta ≈ 180° > reject threshold (60°) → direction status: incompatible
+    // (direction_conflict). When in the road_bump lookahead window [100–500 m]
+    // this event is suppressed from driver-facing selection; visible in debug / QA only.
+    //
+    // Proves that road_bump candidates pass through the direction compatibility check
+    // and are correctly suppressed when direction is incompatible — not just accepted
+    // unconditionally.
+    //
+    // target_speed_kmh=null: no advisory target speed. WIP — NOT Canon.
+    //
+    // Approximate along-route position: ~2133 m from route start.
+    // Placed in segment 3 (37.630–37.645).
+    // Useful progress range for direction_conflict check: ~35–39% (vehicle
+    // 100–500 m behind this event).
+    // WIP — NOT Canon. Numeric defaults are WIP emulator defaults only.
+    event_id: "synthetic-evt-011",
+    source: "synthetic_fixture",
+    source_event_id: "synthetic-011",
+    source_dataset_version: "synthetic-fixture-v0",
+    raw_type: null,
+    normalized_type: "road_bump",
+    // lon=37.634: in segment 3 (37.630–37.645), ~2133 m from route start.
+    // Synthetic coordinates only — not a real road hazard location.
+    lon: 37.634,
+    lat: 55.750,
+    // null: road_bump events do not carry an advisory target speed.
+    target_speed_kmh: null,
+    // Westbound (270°) — incompatible with the eastbound synthetic route.
+    // delta ≈ 180° > reject threshold → direction_conflict.
+    // Synthetic value — not from any real source.
+    source_direction_deg: 270,
+    source_dirtype: 1,
+    imported_at: "2026-05-24T00:00:00Z",
   },
 ];

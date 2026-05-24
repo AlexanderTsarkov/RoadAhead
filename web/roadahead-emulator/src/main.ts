@@ -672,7 +672,7 @@ function buildGroupRows(
       label: "○ Not processed — out of scope for this slice",
       note:
         "Event type not in the current applicability processing scope " +
-        "(speed_limit and static_camera are processed; others are not). " +
+        "(speed_limit, static_camera, and road_bump are processed; others are not). " +
         "Not driver-facing.",
       headerClass: "group-header-not-processed",
     },
@@ -858,7 +858,7 @@ function renderDebugPanel(state: SimulationState): void {
           <dt>Notes</dt>
           <dd class="notes-cell">${escapeHtml(provenance.notes ?? "–")}</dd>
           <dt>Total events loaded</dt>
-          <dd>${SYNTHETIC_PREPARED_EVENTS.length} (synthetic prepared events — speed_limit + static_camera)</dd>
+          <dd>${SYNTHETIC_PREPARED_EVENTS.length} (synthetic prepared events — speed_limit + static_camera + road_bump)</dd>
         </dl>
       </div>
 
@@ -908,7 +908,7 @@ function renderDebugPanel(state: SimulationState): void {
     <div class="debug-block debug-block-full">
       <h3>
         Event Selection
-        <span class="wip-inline">speed_limit + static_camera scope · projection-derived distance · cross-track/off-route suppression · direction compat · Slices 4.1–4.4 · Issues #65 #67</span>
+        <span class="wip-inline">speed_limit + static_camera + road_bump scope · projection-derived distance · cross-track/off-route suppression · direction compat · Slices 4.1–4.4 · Issues #65 #67 #75</span>
       </h3>
       <p class="debug-note">
         Ahead/behind determined by <strong>projection-derived along-route distance</strong>.
