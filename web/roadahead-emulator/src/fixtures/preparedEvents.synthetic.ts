@@ -97,9 +97,11 @@ import type { PreparedEvent } from "../contracts/preparedEvent.js";
  *                       before Issue #65 extended the applicability pipeline)
  *                       (Slice 4.5 / Issue #57; Issue #65 — SYNTHETIC, WIP, not Canon)
  *   synthetic-evt-006 — off-route placement (lat=55.751 vs route lat=55.750)
- *                       → non-zero cross-track distance visible in debug;
- *                       direction_unknown (null metadata); debug only
- *                       (Slice 4.5 / Issue #57 — SYNTHETIC, WIP, not Canon)
+ *                       → cross-track ≈ 111 m > route_projection_reject_m (50 m WIP)
+ *                       → off_route_cross_track (suppressed before direction check);
+ *                       cross-track visible in debug; non-zero cross-track confirmed.
+ *                       (Slice 4.5 / Issue #57 — cross-track debug; Issue #67 — suppression baseline;
+ *                       SYNTHETIC, WIP, not Canon)
  *   synthetic-evt-007 — static_camera, eastbound (source_direction_deg=90,
  *                       source_dirtype=1) → compatible with eastbound route;
  *                       driver-facing eligible when in window and no speed_limit
@@ -109,10 +111,13 @@ import type { PreparedEvent } from "../contracts/preparedEvent.js";
  *                       source_dirtype=1) → direction_conflict (suppressed)
  *                       (Issue #65 — SYNTHETIC, WIP, not Canon)
  *   synthetic-evt-009 — static_camera, off-route (~111 m north, lat=55.751),
- *                       null direction → direction_unknown (suppressed); non-zero
- *                       cross-track confirms off-route static_camera is processed
- *                       through the pipeline, not blanket out_of_scope by type
- *                       (Issue #65 — SYNTHETIC, WIP, not Canon)
+ *                       null direction → cross-track ≈ 111 m > route_projection_reject_m
+ *                       (50 m WIP) → off_route_cross_track (suppressed before direction
+ *                       check); confirms off-route static_camera enters the pipeline
+ *                       (not blanket out_of_scope by type) and is suppressed by
+ *                       cross-track before direction_unknown (Issue #67 precedence).
+ *                       (Issue #65 — pipeline inclusion; Issue #67 — off-route baseline;
+ *                       SYNTHETIC, WIP, not Canon)
  *
  * All instances are candidate observations — not verified RoadAhead truth.
  * All fixture events are synthetic records for debug/QA coverage only.
@@ -339,9 +344,8 @@ export const SYNTHETIC_PREPARED_EVENTS: PreparedEvent[] = [
   },
 
   {
-    // SYNTHETIC — Issue #65 — static_camera off-route / cross-track coverage
-    // Exercises: off-route static_camera candidate — non-zero cross-track
-    // distance, direction_unknown suppression.
+    // SYNTHETIC — Issue #65 (pipeline inclusion); Issue #67 (off-route suppression baseline)
+    // Exercises: off-route static_camera suppressed by cross-track distance (Issue #67).
     //
     // Placed ~111 m north of the route (lat=55.751 vs route lat=55.750;
     // 0.001° × 111,320 m/° ≈ 111 m cross-track). The event projects to the
@@ -350,21 +354,22 @@ export const SYNTHETIC_PREPARED_EVENTS: PreparedEvent[] = [
     //
     // normalized_type="static_camera": confirms that off-route static_camera
     // events are processed through the applicability pipeline (not blanket
-    // out_of_scope by type) and are suppressed by an existing reason — here
-    // direction_unknown (null direction metadata). This is consistent with the
-    // existing reason model used for evt-006 (speed_limit, off-route).
+    // out_of_scope by type — static_camera enters the pipeline per Issue #65).
     //
-    // No new cross-track suppression algorithm is introduced. The event receives
-    // a projection record with non-zero cross_track_m and is suppressed by the
-    // direction_unknown guard (conservative: null direction → suppressed).
-    // Cross-track threshold for off-route suppression is deferred to a later
-    // child issue under #48. WIP — NOT Canon.
+    // After Issue #67, when within the static_camera lookahead window [250–1100 m],
+    // cross-track ≈ 111 m > route_projection_reject_m (50 m WIP default) →
+    // status: off_route_cross_track, reason code: route_projection_cross_track_rejected.
+    // The cross-track check fires before direction compatibility; null direction
+    // is suppressed here rather than at direction_unknown (Issue #67 precedence).
     //
     // target_speed_kmh=null: no advisory target speed. No enforcement semantics.
     //
     // Approximate along-route position: ~2687 m from route start (segment 2,
     // 37.630–37.645, ~111 m north of route).
     // Useful progress range for window check: ~32–51% (vehicle 250–1100 m behind).
+    //
+    // WIP — NOT Canon. Threshold (50 m) is WIP emulator default, not Canon.
+    // (tuning-and-validation Canon truths 1, 2; Issue #67 baseline)
     event_id: "synthetic-evt-009",
     source: "synthetic_fixture",
     source_event_id: "synthetic-009",
@@ -384,24 +389,26 @@ export const SYNTHETIC_PREPARED_EVENTS: PreparedEvent[] = [
   },
 
   {
-    // SYNTHETIC — Slice 4.5 / Issue #57
-    // Exercises: non-zero cross-track distance visible in debug panel.
+    // SYNTHETIC — Slice 4.5 / Issue #57 (cross-track debug visibility);
+    //             Issue #67 (cross-track/off-route suppression baseline)
+    //
+    // Exercises: off-route suppression by cross-track distance (Issue #67).
     //
     // Placed ~111 m north of the synthetic route (lat=55.751 vs route lat=55.750;
     // 0.001° × 111,320 m/° ≈ 111 m cross-track). The event projects to the
     // nearest on-route point, producing a clearly non-zero cross-track value
-    // in the debug table. This makes future cross-track / off-route ambiguity
-    // work inspectable through the existing debug panel.
+    // in the debug table.
     //
-    // No off-route suppression behavior is added in this slice.
-    // No projection_missing is forced — the event is projected normally; only
-    // the cross-track value will be elevated compared to on-route events.
+    // After Issue #67, when within the speed_limit lookahead window [175–900 m],
+    // cross-track ≈ 111 m > route_projection_reject_m (50 m WIP default) →
+    // status: off_route_cross_track, reason code: route_projection_cross_track_rejected.
+    // The cross-track check fires before direction compatibility; a null direction
+    // event is suppressed here rather than at direction_unknown (new precedence).
     //
-    // source_direction_deg=null, source_dirtype=null → direction_unknown
-    // (consistent with evt-001 direction semantics).
+    // source_direction_deg=null, source_dirtype=null: no direction metadata.
     //
-    // WIP — NOT Canon. Debug visibility only. The cross-track threshold for
-    // off-route suppression is deferred to a later child issue under #48.
+    // WIP — NOT Canon. Threshold (50 m) is WIP emulator default, not Canon.
+    // (tuning-and-validation Canon truths 1, 2; Issue #67 baseline)
     event_id: "synthetic-evt-006",
     source: "synthetic_fixture",
     source_event_id: "synthetic-006",

@@ -715,6 +715,10 @@ function renderDebugPanel(state: SimulationState): void {
       direction_delta_accept_deg: EMULATOR_TUNING_DEFAULTS.direction_applicability.direction_delta_accept_deg,
       direction_delta_reject_above_deg: EMULATOR_TUNING_DEFAULTS.direction_applicability.direction_delta_reject_above_deg,
       approach_window_m: EMULATOR_TUNING_DEFAULTS.direction_applicability.approach_window_m,
+      // Issue #67: cross-track/off-route rejection threshold.
+      // Used as the WIP reject threshold for off-route suppression.
+      // WIP emulator default — NOT Canon. (tuning-and-validation Canon truths 1, 2)
+      route_projection_reject_m_WIP: EMULATOR_TUNING_DEFAULTS.direction_applicability.route_projection_reject_m,
     },
     enforcement_profile_WIP: {
       profile_id: EMULATOR_TUNING_DEFAULTS.enforcement_profile.profile_id,
@@ -807,7 +811,7 @@ function renderDebugPanel(state: SimulationState): void {
     <div class="debug-block debug-block-full">
       <h3>
         Event Selection
-        <span class="wip-inline">speed_limit + static_camera scope · projection-derived distance · direction compat · Slices 4.1–4.4 · Issue #65</span>
+        <span class="wip-inline">speed_limit + static_camera scope · projection-derived distance · cross-track/off-route suppression · direction compat · Slices 4.1–4.4 · Issues #65 #67</span>
       </h3>
       <p class="debug-note">
         Ahead/behind determined by <strong>projection-derived along-route distance</strong>.
@@ -816,12 +820,16 @@ function renderDebugPanel(state: SimulationState): void {
         max <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.speed_limit.max_lookahead_m} m</strong>;
         static_camera min <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.static_camera.min_display_distance_m} m</strong> /
         max <strong>${EMULATOR_TUNING_DEFAULTS.lookahead.static_camera.max_lookahead_m} m</strong>.
-        <strong>direction_conflict</strong> = within window but direction incompatible; suppressed from driver-facing selection.
+        <strong>off_route_cross_track</strong> (Issue #67) = within lookahead window but cross-track distance exceeds
+        WIP rejection threshold (<code>route_projection_reject_m</code> =
+        <strong>${EMULATOR_TUNING_DEFAULTS.direction_applicability.route_projection_reject_m} m</strong> WIP default, not Canon);
+        suppressed from driver-facing selection before direction check is applied.
+        <strong>direction_conflict</strong> = within window, on-route, but direction incompatible; suppressed from driver-facing selection.
         Direction compatibility columns (⟳) are <em class="dir-derived-label">per-session derived debug data</em> —
         source direction is candidate metadata only, not verified truth. WIP baseline semantics — not Canon.
         <strong>Along-route / Cross-track</strong> (⊕) are per-session derived projection values — not persisted to fixtures.
         <strong>secondary</strong> = next event inside the simplified window only, not global next event on route.
-        <strong>Reason code</strong> (✦) is per-session derived structured reason data — WIP Slices 4.1–4.3 baseline, not Canon.
+        <strong>Reason code</strong> (✦) is per-session derived structured reason data — WIP Slices 4.1–4.3 + Issue #67 baseline, not Canon.
         Hover over the Reason cell for the full reason text.
         <strong>Debug-only rows</strong> (marked ⚠ debug only) must not appear driver-facing.
         (ui-model Canon truth 13; event-applicability Canon truth 12)
@@ -862,8 +870,9 @@ function renderDebugPanel(state: SimulationState): void {
         ⊕ per-session derived projection values — not persisted to base fixture files (event-applicability Canon truth 13)
         <br>⟳ per-session derived direction compatibility values — source direction is candidate metadata, not verified truth
         (event-applicability Canon truth 8; Slice 4.2 WIP — not Canon)
-        <br>✦ per-session derived structured reason code — WIP suppression/acceptance reason model (Slice 4.3 / Issue #53);
-        codes, kind, and is_driver_facing_eligible reflect Slices 4.1–4.3 baseline only — NOT Product Canon;
+        <br>✦ per-session derived structured reason code — WIP suppression/acceptance reason model (Slice 4.3 / Issue #53; cross-track baseline Issue #67);
+        codes, kind, and is_driver_facing_eligible reflect Slices 4.1–4.3 + Issue #67 baseline only — NOT Product Canon;
+        off_route_cross_track suppresses events where cross-track &gt; route_projection_reject_m (WIP 50 m) before direction check;
         full taxonomy deferred to later child issues under Issue #48
         <br>⚠ debug only — NOT driver-facing eligible; visible in debug / QA; suppressed from driver-facing selection
         (ui-model Canon truth 13; event-applicability Canon truth 12)

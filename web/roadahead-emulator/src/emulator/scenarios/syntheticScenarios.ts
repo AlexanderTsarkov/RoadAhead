@@ -38,10 +38,10 @@
  *   evt-003  lon=37.638  speed_limit 80 km/h  west (270°, dirtype=1)  → direction_conflict
  *   evt-004  lon=37.619  speed_limit 50 km/h  dirtype=99 (unsupported) → direction_unsupported
  *   evt-005  lon=37.655  static_camera  null   → direction_unknown (suppressed) when in window
- *   evt-006  lon=37.640, lat=55.751 (off-route ~111 m north)  null → direction_unknown, non-zero cross-track
+ *   evt-006  lon=37.640, lat=55.751 (off-route ~111 m north)  null → off_route_cross_track (Issue #67)
  *   evt-007  lon=37.648  static_camera  east (90°, dirtype=1)  → compatible; eligible when in window
  *   evt-008  lon=37.632  static_camera  west (270°, dirtype=1) → direction_conflict (suppressed)
- *   evt-009  lon=37.643, lat=55.751 (off-route ~111 m north)   → direction_unknown, non-zero cross-track
+ *   evt-009  lon=37.643, lat=55.751 (off-route ~111 m north)   → off_route_cross_track (Issue #67)
  *
  * Approximate along-route positions from route start:
  *   evt-004 ≈  1187 m   evt-001 ≈ 1499 m   evt-008 ≈ 1999 m   evt-003 ≈ 2373 m
@@ -210,12 +210,16 @@ export const SYNTHETIC_SCENARIOS: EmulatorScenario[] = [
         expectedReasonCode: "direction_conflict",
         expectedReasonKind: "suppressed",
       },
-      // evt-006 (off-route, null direction) is also in window at this progress.
-      // Checks non-zero cross-track (event placed ~111 m north of route).
-      // WIP debug check — NOT Canon. No off-route suppression behavior exists yet.
+      // evt-006 (off-route speed_limit, ~111 m north, null direction) is also in
+      // window at this progress (~621 m ahead). Cross-track ≈ 111 m > 50 m WIP
+      // reject threshold → off_route_cross_track (Issue #67 baseline).
+      // New precedence: cross-track suppression fires before direction_unknown.
+      // WIP — NOT Canon. (Issue #67; tuning-and-validation Canon truths 1, 2)
       {
         eventId: "synthetic-evt-006",
-        expectedStatus: "direction_unknown",
+        expectedStatus: "off_route_cross_track",
+        expectedReasonCode: "route_projection_cross_track_rejected",
+        expectedReasonKind: "suppressed",
         expectNonZeroCrossTrack: true,
       },
     ],
@@ -461,54 +465,6 @@ export const SYNTHETIC_SCENARIOS: EmulatorScenario[] = [
   },
 
   // ---------------------------------------------------------------------------
-  // S-012: static_camera_off_route_direction_unknown
-  //
-  // WIP VALIDATION EVIDENCE for Issue #65 — NOT Product Canon.
-  //
-  // Vehicle at progress ≈ 38% (≈ 1781 m from route start).
-  // evt-009 (static_camera, off-route ~111 m north, null direction) at ≈ 2687 m
-  // → ≈ 906 m ahead → within static_camera lookahead window [250–1100 m];
-  // non-zero cross-track confirms off-route placement; null direction →
-  // direction_unknown → suppressed from driver-facing selection.
-  //
-  // Verifies that off-route static_camera candidates:
-  //   - are processed through the applicability pipeline (not blanket out_of_scope
-  //     solely by event type — evidenced by reasonKind = suppressed, not
-  //     not_processed);
-  //   - have non-zero cross-track distance visible in the debug table;
-  //   - are suppressed with a structured reason consistent with the existing
-  //     reason model (direction_unknown / suppressed, same as evt-006 speed_limit
-  //     off-route pattern from S-004).
-  //
-  // No new cross-track suppression algorithm is introduced. The cross-track
-  // threshold for off-route rejection is deferred to a later child issue (#48).
-  // This scenario is WIP validation evidence only — NOT Canon.
-  // (event-applicability Canon truth 12; Issue #65 WIP baseline)
-  // ---------------------------------------------------------------------------
-  {
-    id: "S-012",
-    title: "static_camera_off_route_direction_unknown — evt-009 (off-route, null dir) in window at ~38%",
-    routeProgressFraction: 0.38,
-    speedKmh: 60,
-
-    expectedPrimaryEventId: null,
-    expectedSpeedReferenceState: "unknown",
-
-    eventChecks: [
-      // evt-009 (static_camera, off-route, null direction): processed through
-      // the applicability pipeline (not out_of_scope by type); non-zero
-      // cross-track; direction_unknown → suppressed. Consistent reason model.
-      {
-        eventId: "synthetic-evt-009",
-        expectedStatus: "direction_unknown",
-        expectedReasonCode: "direction_unknown",
-        expectedReasonKind: "suppressed",
-        expectNonZeroCrossTrack: true,
-      },
-    ],
-  },
-
-  // ---------------------------------------------------------------------------
   // S-011: static_camera_direction_conflict_suppressed
   //
   // WIP VALIDATION EVIDENCE for Issue #65 — NOT Product Canon.
@@ -543,6 +499,167 @@ export const SYNTHETIC_SCENARIOS: EmulatorScenario[] = [
         expectedReasonKind: "suppressed",
       },
       // evt-007 (static_camera, east): too_far at this progress (>1100 m).
+      {
+        eventId: "synthetic-evt-007",
+        expectedStatus: "too_far",
+        expectedReasonCode: "outside_max_lookahead",
+        expectedReasonKind: "suppressed",
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
+  // S-012: static_camera_off_route_cross_track_rejected
+  //
+  // WIP VALIDATION EVIDENCE for Issue #67 — NOT Product Canon.
+  // (Updated from Issue #65 direction_unknown baseline to Issue #67 cross-track
+  //  suppression baseline. New precedence: cross-track fires before direction_unknown.)
+  //
+  // Vehicle at progress ≈ 38% (≈ 1781 m from route start).
+  // evt-009 (static_camera, off-route ~111 m north, null direction) at ≈ 2687 m
+  // → ≈ 906 m ahead → within static_camera lookahead window [250–1100 m];
+  // cross-track ≈ 111 m > route_projection_reject_m (50 m WIP) →
+  // off_route_cross_track (suppressed before direction_unknown check).
+  //
+  // Verifies that off-route static_camera candidates:
+  //   - are processed through the applicability pipeline (not blanket out_of_scope
+  //     solely by event type — evidenced by reasonKind = suppressed, not
+  //     not_processed);
+  //   - have non-zero cross-track distance visible in the debug table;
+  //   - are suppressed with the new off-route reason (not direction_unknown)
+  //     per the Issue #67 cross-track-before-direction precedence.
+  //
+  // Threshold: config.direction_applicability.route_projection_reject_m = 50 m WIP.
+  // WIP emulator default — NOT Canon. (tuning-and-validation Canon truths 1, 2)
+  // (event-applicability Canon truth 12; Issue #67 baseline)
+  // ---------------------------------------------------------------------------
+  {
+    id: "S-012",
+    title: "static_camera_off_route_cross_track_rejected — evt-009 (off-route, ~111 m) in window at ~38%",
+    routeProgressFraction: 0.38,
+    speedKmh: 60,
+
+    expectedPrimaryEventId: null,
+    expectedSpeedReferenceState: "unknown",
+
+    eventChecks: [
+      // evt-009 (static_camera, off-route, null direction): processed through
+      // the applicability pipeline (not out_of_scope by type); cross-track ≈ 111 m
+      // > 50 m WIP threshold → off_route_cross_track (suppressed, debug-visible).
+      // New Issue #67 precedence: cross-track fires before direction_unknown.
+      {
+        eventId: "synthetic-evt-009",
+        expectedStatus: "off_route_cross_track",
+        expectedReasonCode: "route_projection_cross_track_rejected",
+        expectedReasonKind: "suppressed",
+        expectNonZeroCrossTrack: true,
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
+  // S-013: off_route_speed_limit_cross_track_rejected (Issue #67)
+  //
+  // WIP VALIDATION EVIDENCE for Issue #67 — NOT Product Canon.
+  //
+  // Dedicated scenario confirming that the off-route speed_limit fixture
+  // (evt-006) is suppressed by the new cross-track/off-route baseline.
+  //
+  // Vehicle at progress ≈ 40% (≈ 1882 m from route start).
+  // evt-006 (speed_limit, lon=37.640, lat=55.751 — off-route ~111 m north,
+  // null direction) at ≈ 2503 m → ≈ 621 m ahead → within speed_limit lookahead
+  // window [175–900 m]. Cross-track ≈ 111 m > route_projection_reject_m (50 m
+  // WIP default) → off_route_cross_track → suppressed from driver-facing.
+  //
+  // Confirms the Issue #67 cross-track-before-direction precedence:
+  //   - evt-006 is suppressed for cross-track, not direction_unknown.
+  //   - No primary event. Speed reference = unknown.
+  //   - On-route speed_limit events are not in window at this position:
+  //       evt-001 (lon=37.624) ≈ 1499 m → behind
+  //       evt-002 (lon=37.651) ≈ 3186 m → 1304 m ahead → too_far
+  //       evt-003 (lon=37.638) ≈ 2373 m → 491 m ahead → direction_conflict
+  //
+  // Threshold: config.direction_applicability.route_projection_reject_m = 50 m WIP.
+  // NOT Canon. (tuning-and-validation Canon truths 1, 2; Issue #67 baseline)
+  // ---------------------------------------------------------------------------
+  {
+    id: "S-013",
+    title: "off_route_speed_limit_cross_track_rejected — evt-006 (off-route, ~111 m) suppressed at ~40%",
+    routeProgressFraction: 0.40,
+    speedKmh: 60,
+
+    expectedPrimaryEventId: null,
+    expectedSpeedReferenceState: "unknown",
+
+    eventChecks: [
+      // evt-006: off-route speed_limit, cross-track ≈ 111 m > 50 m WIP threshold.
+      // Suppressed with off_route_cross_track before direction_unknown check.
+      // New Issue #67 cross-track/off-route baseline.
+      {
+        eventId: "synthetic-evt-006",
+        expectedStatus: "off_route_cross_track",
+        expectedReasonCode: "route_projection_cross_track_rejected",
+        expectedReasonKind: "suppressed",
+        expectNonZeroCrossTrack: true,
+      },
+      // evt-002 (on-route, eastbound, 40 km/h): too_far at this position.
+      // Confirms on-route speed_limit candidate behavior is not affected.
+      {
+        eventId: "synthetic-evt-002",
+        expectedStatus: "too_far",
+        expectedReasonCode: "outside_max_lookahead",
+        expectedReasonKind: "suppressed",
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
+  // S-014: off_route_static_camera_cross_track_rejected (Issue #67)
+  //
+  // WIP VALIDATION EVIDENCE for Issue #67 — NOT Product Canon.
+  //
+  // Dedicated scenario confirming that the off-route static_camera fixture
+  // (evt-009) is suppressed by the new cross-track/off-route baseline.
+  //
+  // Vehicle at progress ≈ 38% (≈ 1781 m from route start).
+  // evt-009 (static_camera, lon=37.643, lat=55.751 — off-route ~111 m north,
+  // null direction) at ≈ 2687 m → ≈ 906 m ahead → within static_camera
+  // lookahead window [250–1100 m]. Cross-track ≈ 111 m > route_projection_reject_m
+  // (50 m WIP default) → off_route_cross_track → suppressed from driver-facing.
+  //
+  // Confirms that off-route static_camera candidates:
+  //   - enter the applicability pipeline (not blanket out_of_scope by type);
+  //   - are suppressed by cross-track, not direction_unknown;
+  //   - are debug-visible with non-zero cross-track displayed.
+  //
+  // Counterpart to S-013 for static_camera type.
+  //
+  // Threshold: config.direction_applicability.route_projection_reject_m = 50 m WIP.
+  // NOT Canon. (tuning-and-validation Canon truths 1, 2; Issue #67 baseline)
+  // ---------------------------------------------------------------------------
+  {
+    id: "S-014",
+    title: "off_route_static_camera_cross_track_rejected — evt-009 (off-route, ~111 m) suppressed at ~38%",
+    routeProgressFraction: 0.38,
+    speedKmh: 60,
+
+    expectedPrimaryEventId: null,
+    expectedSpeedReferenceState: "unknown",
+
+    eventChecks: [
+      // evt-009: off-route static_camera, cross-track ≈ 111 m > 50 m WIP threshold.
+      // Suppressed with off_route_cross_track before direction_unknown check.
+      // New Issue #67 cross-track/off-route baseline.
+      {
+        eventId: "synthetic-evt-009",
+        expectedStatus: "off_route_cross_track",
+        expectedReasonCode: "route_projection_cross_track_rejected",
+        expectedReasonKind: "suppressed",
+        expectNonZeroCrossTrack: true,
+      },
+      // evt-007 (on-route, eastbound static_camera): too_far at this position
+      // (≈1217 m ahead > 1100 m static_camera max_lookahead).
+      // Confirms on-route static_camera candidate behavior is not affected.
       {
         eventId: "synthetic-evt-007",
         expectedStatus: "too_far",
