@@ -1125,6 +1125,20 @@ code {
   color: #3d5570;
 }
 
+/* Issue #76: type-aware display — camera / road_bump "no target speed" label */
+.op-summary-no-speed {
+  font-style: italic;
+  color: #6a8aaa;
+  font-size: 0.8rem;
+}
+
+/* Issue #76: event advisory context type label in operator header */
+.op-summary-context-type {
+  font-size: 0.78rem;
+  color: #9ab8d8;
+  font-style: italic;
+}
+
 .op-state-approach-target {
   color: #50d090;
 }

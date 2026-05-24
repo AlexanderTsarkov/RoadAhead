@@ -380,6 +380,84 @@ function updateProgressDisplay(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Event-type-aware display semantics (Issue #76)
+//
+// UI-only helper — does NOT influence event selection, eligibility, projection,
+// direction compatibility, or scenario sweep logic.
+//
+// Maps normalized_type to concise advisory display labels for:
+//   renderThreeCircles(), renderOperatorHeader(), buildEvidenceSnapshotMarkdown()
+//
+// WIP / emulator QA display only — NOT Product Canon.
+// Not legal guidance, not safety-certified.
+// ---------------------------------------------------------------------------
+
+type EventDisplaySemantics = {
+  /** Short advisory label shown in the primary circle and operator header */
+  primaryAdvisoryLabel: string;
+  /** Whether this event type carries a meaningful numeric target speed */
+  hasTargetSpeed: boolean;
+  /** Text shown in the target-speed slot when hasTargetSpeed is false */
+  noSpeedLabel: string;
+  /** Tooltip for the primary event circle */
+  circleTitle: string;
+  /**
+   * Prefix for the speed-reference / event-context state row below the circles.
+   * "Speed reference state" for speed_limit; "Event context state" for others.
+   */
+  refStatePrefix: string;
+};
+
+/**
+ * Return display-only semantics for a given normalized event type.
+ *
+ * Handles: speed_limit, static_camera, road_bump.
+ * Falls back gracefully for unknown types — no crash, no fake speed shown.
+ *
+ * UI-only helper. Zero domain logic. Issue #76.
+ */
+function getEventDisplaySemantics(
+  normalizedType: string | null | undefined
+): EventDisplaySemantics {
+  switch (normalizedType) {
+    case "speed_limit":
+      return {
+        primaryAdvisoryLabel: "Speed limit advisory",
+        hasTargetSpeed: true,
+        noSpeedLabel: "no target speed",
+        circleTitle: "Primary applicable event — speed limit advisory",
+        refStatePrefix: "Speed reference state",
+      };
+    case "static_camera":
+      return {
+        primaryAdvisoryLabel: "Camera advisory",
+        hasTargetSpeed: false,
+        noSpeedLabel: "no target speed",
+        circleTitle:
+          "Primary applicable event — camera advisory (no target speed)",
+        refStatePrefix: "Event context state",
+      };
+    case "road_bump":
+      return {
+        primaryAdvisoryLabel: "Road hazard advisory",
+        hasTargetSpeed: false,
+        noSpeedLabel: "no target speed",
+        circleTitle:
+          "Primary applicable event — road bump / hazard advisory (no target speed)",
+        refStatePrefix: "Event context state",
+      };
+    default:
+      return {
+        primaryAdvisoryLabel: "Event advisory",
+        hasTargetSpeed: false,
+        noSpeedLabel: "no target speed",
+        circleTitle: "Primary applicable event — advisory context",
+        refStatePrefix: "Event context state",
+      };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Three-circle display
 // ---------------------------------------------------------------------------
 
@@ -390,21 +468,35 @@ function renderThreeCircles(state: SimulationState): void {
   const { primary, secondary } = state.eventSelection;
   const refState = state.speedReference.state;
 
-  const primarySpeedText =
-    primary?.target_speed_kmh != null
-      ? String(primary.target_speed_kmh)
-      : "–";
-  const primarySubLabel =
-    primary != null
-      ? `${primary.event_id}`
-      : "no applicable event";
+  const primarySemantics = getEventDisplaySemantics(primary?.normalized_type);
+  const secondarySemantics = getEventDisplaySemantics(secondary?.normalized_type);
 
-  const secondarySpeedText =
-    secondary?.target_speed_kmh != null
-      ? String(secondary.target_speed_kmh)
+  // Speed value: only show numeric target speed for speed_limit events that
+  // carry one. All other event types display "–" — no fake speed is shown.
+  const primaryValueText =
+    primary == null
+      ? "–"
+      : primarySemantics.hasTargetSpeed && primary.target_speed_kmh != null
+        ? String(primary.target_speed_kmh)
+        : "–";
+
+  // Circle bottom label: type-aware advisory label + event id sublabel.
+  const primaryBottomLabel =
+    primary != null
+      ? `${escapeHtml(primarySemantics.primaryAdvisoryLabel)}<br><span class="circle-sublabel">${escapeHtml(primary.event_id)}</span>`
+      : `no applicable event`;
+
+  const secondaryValueText =
+    secondary == null
+      ? "–"
+      : secondarySemantics.hasTargetSpeed && secondary.target_speed_kmh != null
+        ? String(secondary.target_speed_kmh)
+        : "–";
+
+  const secondaryBottomLabel =
+    secondary != null
+      ? `${escapeHtml(secondarySemantics.primaryAdvisoryLabel)}<br><span class="circle-sublabel">next: ${escapeHtml(secondary.event_id)}</span>`
       : "–";
-  const secondarySubLabel =
-    secondary != null ? `next in window: ${secondary.event_id}` : "–";
 
   const primaryActiveClass =
     refState === "approach_target" ? "circle-state-active" : "circle-state-inactive";
@@ -415,14 +507,14 @@ function renderThreeCircles(state: SimulationState): void {
       <div class="circle-label">current speed<br><span class="circle-unit">km/h</span></div>
     </div>
 
-    <div class="circle circle-primary ${primaryActiveClass}" title="Primary applicable event — advisory target speed">
-      <div class="circle-value">${primarySpeedText}</div>
-      <div class="circle-label">primary event<br><span class="circle-sublabel">${escapeHtml(primarySubLabel)}</span></div>
+    <div class="circle circle-primary ${primaryActiveClass}" title="${escapeHtml(primarySemantics.circleTitle)}">
+      <div class="circle-value">${primaryValueText}</div>
+      <div class="circle-label">${primaryBottomLabel}</div>
     </div>
 
     <div class="circle circle-secondary" title="Secondary context — next event inside simplified candidate window (not global next event; full secondary semantics are WIP)">
-      <div class="circle-value">${secondarySpeedText}</div>
-      <div class="circle-label">secondary<br><span class="circle-sublabel">${escapeHtml(secondarySubLabel)}</span></div>
+      <div class="circle-value">${secondaryValueText}</div>
+      <div class="circle-label">${secondaryBottomLabel}</div>
     </div>
   `;
 
@@ -431,7 +523,7 @@ function renderThreeCircles(state: SimulationState): void {
     const stateClass =
       refState === "approach_target" ? "state-approach-target" : "state-unknown";
     stateRow.innerHTML =
-      `Speed reference state: ` +
+      `${escapeHtml(primarySemantics.refStatePrefix)}: ` +
       `<strong class="${stateClass}">${escapeHtml(refState)}</strong> — ` +
       `<span class="state-reason">${escapeHtml(state.speedReference.reason)}</span>`;
   }
@@ -501,14 +593,29 @@ function renderOperatorHeader(state: SimulationState): void {
     : null;
   const reasonCode = primaryRecord?.applicabilityReason.code ?? null;
 
+  // Type-aware display semantics — UI only, no domain logic.
+  const primarySemantics = getEventDisplaySemantics(primary?.normalized_type);
+
   const primaryHtml = primary
     ? `<code class="op-summary-event-id">${escapeHtml(primary.event_id)}</code>`
     : `<em class="op-summary-none">none</em>`;
 
+  // Show context type advisory label when a primary event is selected.
+  const contextTypeHtml = primary
+    ? `<div class="op-summary-item">
+        <span class="op-summary-label">Context type</span>
+        <span class="op-summary-value op-summary-context-type">${escapeHtml(primarySemantics.primaryAdvisoryLabel)}</span>
+      </div>`
+    : "";
+
+  // Target speed: show numeric value for speed_limit; show "no target speed"
+  // advisory for camera / road_bump — no fake speed displayed.
   const targetHtml =
-    targetSpeed != null
+    primarySemantics.hasTargetSpeed && targetSpeed != null
       ? `<span class="op-summary-target-speed">${targetSpeed} km/h</span>`
-      : `<em class="op-summary-none">–</em>`;
+      : primarySemantics.hasTargetSpeed
+        ? `<em class="op-summary-none">–</em>`
+        : `<em class="op-summary-no-speed">${escapeHtml(primarySemantics.noSpeedLabel)}</em>`;
 
   const stateClass = refState === "approach_target"
     ? "op-state-approach-target"
@@ -527,6 +634,7 @@ function renderOperatorHeader(state: SimulationState): void {
         <span class="op-summary-label">Primary event</span>
         <span class="op-summary-value">${primaryHtml}</span>
       </div>
+      ${contextTypeHtml}
       <div class="op-summary-item">
         <span class="op-summary-label">Ref state</span>
         <span class="op-summary-value ${stateClass}">${escapeHtml(refState)}</span>
@@ -1165,10 +1273,15 @@ function buildEvidenceSnapshotMarkdown(state: SimulationState): string {
 
   const progressPct = Math.round(state.progress * 100);
   const primaryLine = primary ? escapeMd(primary.event_id) : "none";
+
+  // Type-aware target speed line: avoid fake speed for camera / road_bump.
+  const primarySemantics = getEventDisplaySemantics(primary?.normalized_type);
   const targetLine =
-    targetSpeed != null
+    primarySemantics.hasTargetSpeed && targetSpeed != null
       ? `${targetSpeed} km/h (advisory only — not legal)`
-      : "none";
+      : primarySemantics.hasTargetSpeed
+        ? "none"
+        : `none (${primarySemantics.noSpeedLabel})`;
 
   const tableHeader =
     "| Event | Type | Status | Reason code | Kind | Eligible | Signed dist m | Cross-track m |";
@@ -1203,6 +1316,8 @@ function buildEvidenceSnapshotMarkdown(state: SimulationState): string {
     `- Route progress: ${progressPct}% / ${state.progress.toFixed(4)}`,
     `- Current speed: ${state.speedKmh} km/h`,
     `- Primary event: ${primaryLine}`,
+    `- Primary event type: ${primary ? escapeMd(primary.normalized_type) : "none"}`,
+    `- Primary advisory context: ${escapeMd(primarySemantics.primaryAdvisoryLabel)}`,
     `- Speed reference: ${escapeMd(refState)}`,
     `- Target speed: ${targetLine}`,
     `- Counts: accepted ${acceptedCount} / suppressed ${suppressedCount} / not_processed ${notProcessedCount}`,
