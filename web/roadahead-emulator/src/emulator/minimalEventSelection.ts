@@ -119,7 +119,7 @@ export type EventStatus =
   | "projection_missing" // no projection record; conservative suppressed — (Slice 4.3 WIP)
   | "candidate" // ahead and within window; direction compatible or bidirectional; not selected
   | "selected" // selected primary applicable event
-  | "out_of_scope"; // event type not processed in this slice (non speed_limit)
+  | "out_of_scope"; // event type not in current applicability processing scope
 
 /**
  * Debug record for a single event's selection result.

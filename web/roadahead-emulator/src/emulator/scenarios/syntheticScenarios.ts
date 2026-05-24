@@ -41,10 +41,11 @@
  *   evt-006  lon=37.640, lat=55.751 (off-route ~111 m north)  null → direction_unknown, non-zero cross-track
  *   evt-007  lon=37.648  static_camera  east (90°, dirtype=1)  → compatible; eligible when in window
  *   evt-008  lon=37.632  static_camera  west (270°, dirtype=1) → direction_conflict (suppressed)
+ *   evt-009  lon=37.643, lat=55.751 (off-route ~111 m north)   → direction_unknown, non-zero cross-track
  *
  * Approximate along-route positions from route start:
  *   evt-004 ≈  1187 m   evt-001 ≈ 1499 m   evt-008 ≈ 1999 m   evt-003 ≈ 2373 m
- *   evt-006 ≈  2503 m   evt-007 ≈ 2998 m   evt-002 ≈ 3186 m   evt-005 ≈ 3436 m
+ *   evt-009 ≈  2687 m   evt-006 ≈  2503 m   evt-007 ≈ 2998 m   evt-002 ≈ 3186 m   evt-005 ≈ 3436 m
  *
  * WIP lookahead windows (EMULATOR_TUNING_DEFAULTS):
  *   speed_limit:    [175 m,  900 m] from vehicle
@@ -455,6 +456,54 @@ export const SYNTHETIC_SCENARIOS: EmulatorScenario[] = [
         expectedStatus: "behind",
         expectedReasonCode: "behind_vehicle",
         expectedReasonKind: "suppressed",
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
+  // S-012: static_camera_off_route_direction_unknown
+  //
+  // WIP VALIDATION EVIDENCE for Issue #65 — NOT Product Canon.
+  //
+  // Vehicle at progress ≈ 38% (≈ 1781 m from route start).
+  // evt-009 (static_camera, off-route ~111 m north, null direction) at ≈ 2687 m
+  // → ≈ 906 m ahead → within static_camera lookahead window [250–1100 m];
+  // non-zero cross-track confirms off-route placement; null direction →
+  // direction_unknown → suppressed from driver-facing selection.
+  //
+  // Verifies that off-route static_camera candidates:
+  //   - are processed through the applicability pipeline (not blanket out_of_scope
+  //     solely by event type — evidenced by reasonKind = suppressed, not
+  //     not_processed);
+  //   - have non-zero cross-track distance visible in the debug table;
+  //   - are suppressed with a structured reason consistent with the existing
+  //     reason model (direction_unknown / suppressed, same as evt-006 speed_limit
+  //     off-route pattern from S-004).
+  //
+  // No new cross-track suppression algorithm is introduced. The cross-track
+  // threshold for off-route rejection is deferred to a later child issue (#48).
+  // This scenario is WIP validation evidence only — NOT Canon.
+  // (event-applicability Canon truth 12; Issue #65 WIP baseline)
+  // ---------------------------------------------------------------------------
+  {
+    id: "S-012",
+    title: "static_camera_off_route_direction_unknown — evt-009 (off-route, null dir) in window at ~38%",
+    routeProgressFraction: 0.38,
+    speedKmh: 60,
+
+    expectedPrimaryEventId: null,
+    expectedSpeedReferenceState: "unknown",
+
+    eventChecks: [
+      // evt-009 (static_camera, off-route, null direction): processed through
+      // the applicability pipeline (not out_of_scope by type); non-zero
+      // cross-track; direction_unknown → suppressed. Consistent reason model.
+      {
+        eventId: "synthetic-evt-009",
+        expectedStatus: "direction_unknown",
+        expectedReasonCode: "direction_unknown",
+        expectedReasonKind: "suppressed",
+        expectNonZeroCrossTrack: true,
       },
     ],
   },
