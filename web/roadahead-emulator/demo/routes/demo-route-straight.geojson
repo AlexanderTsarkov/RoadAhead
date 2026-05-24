@@ -1,0 +1,20 @@
+{
+  "type": "Feature",
+  "geometry": {
+    "type": "LineString",
+    "coordinates": [
+      [37.600, 55.760],
+      [37.615, 55.762],
+      [37.630, 55.765],
+      [37.645, 55.767],
+      [37.660, 55.770],
+      [37.675, 55.772],
+      [37.690, 55.775]
+    ]
+  },
+  "properties": {
+    "name": "Demo route — straight NE-bound segment",
+    "notes": "SYNTHETIC DEMO DATA — NOT A REAL ROAD. Hand-authored for emulator browser testing only. Not provider-derived. Not Product Canon. Route geometry only — no event data, no speed limits, no routing truth.",
+    "source": "emulator_demo_fixture"
+  }
+}

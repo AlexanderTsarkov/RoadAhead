@@ -25,6 +25,7 @@
  */
 
 import "./style.css";
+import type { RouteGeometry, LonLatCoord } from "./contracts/routeGeometry.js";
 import { SYNTHETIC_ROUTE } from "./fixtures/routeGeometry.synthetic.js";
 import { SYNTHETIC_PREPARED_EVENTS } from "./fixtures/preparedEvents.synthetic.js";
 import { EMULATOR_TUNING_DEFAULTS } from "./config/emulatorTuningDefaults.js";
@@ -113,6 +114,207 @@ let debugFilter: DebugFilterMode = "all";
 let selectedScenarioId: string | null = null;
 
 // ---------------------------------------------------------------------------
+// Active route state (Issue #79 / Slice 4.10)
+//
+// Tracks the currently active route geometry.
+// Default is SYNTHETIC_ROUTE; can be replaced by a user-loaded GeoJSON file.
+//
+// Route geometry is candidate route context for the emulator only.
+// Not Product Canon. Not navigation. Not routing. Not map matching.
+// No speed / ETA / traffic / posted-limit truth from route files.
+// Synthetic scenarios are tied to SYNTHETIC_ROUTE; selecting a scenario resets
+// the active route back to synthetic.
+//
+// WIP — NOT Product Canon. Not driver-facing.
+// ---------------------------------------------------------------------------
+
+/** The currently active route geometry. Defaults to the synthetic fixture. */
+let activeRoute: RouteGeometry = SYNTHETIC_ROUTE;
+
+/** Describes where the active route came from. */
+type ActiveRouteSource =
+  | { kind: "synthetic" }
+  | { kind: "geojson"; filename: string };
+
+/** Tracks source of the active route for UI display. */
+let activeRouteSource: ActiveRouteSource = { kind: "synthetic" };
+
+/** Parse error message from the last GeoJSON import attempt, or null. */
+let routeImportError: string | null = null;
+
+// ---------------------------------------------------------------------------
+// GeoJSON route import helpers (Issue #79 / Slice 4.10)
+//
+// parseUserGeoJsonRoute: accepts raw parsed JSON from a user-loaded local file.
+// Supports:
+//   - LineString geometry: { "type": "LineString", "coordinates": [...] }
+//   - Feature with LineString: { "type": "Feature", "geometry": {...}, ... }
+//   - FeatureCollection: uses the first LineString feature found
+//
+// Does NOT support MultiLineString, GPX, or KML.
+// Does NOT read GeoJSON properties as event data, speed limits, or route truth.
+// Route geometry is candidate context for the emulator only — not Canon.
+//
+// Throws a descriptive Error on any validation failure.
+// WIP — NOT Product Canon. No provider/API/network. No event import.
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate and extract [lon, lat] coordinate pairs from a raw coordinates
+ * array. Enforces: array of at least 2 elements, each element is a [number,
+ * number] pair with lon ∈ [-180, 180] and lat ∈ [-90, 90].
+ *
+ * Returns a typed LonLatCoord[] or throws a descriptive Error.
+ */
+function extractAndValidateLineStringCoords(
+  raw: unknown,
+  path: string
+): LonLatCoord[] {
+  if (!Array.isArray(raw)) {
+    throw new Error(`Invalid GeoJSON: ${path} must be an array`);
+  }
+  if (raw.length < 2) {
+    throw new Error(
+      `Invalid GeoJSON: ${path} must have at least 2 coordinates, got ${raw.length}`
+    );
+  }
+  return raw.map((coord, i): LonLatCoord => {
+    if (!Array.isArray(coord) || coord.length < 2) {
+      throw new Error(
+        `Invalid GeoJSON: ${path}[${i}] must be a [lon, lat] array`
+      );
+    }
+    const lon = coord[0] as unknown;
+    const lat = coord[1] as unknown;
+    if (typeof lon !== "number" || !isFinite(lon)) {
+      throw new Error(
+        `Invalid GeoJSON: ${path}[${i}][0] (lon) must be a finite number, got ${String(lon)}`
+      );
+    }
+    if (typeof lat !== "number" || !isFinite(lat)) {
+      throw new Error(
+        `Invalid GeoJSON: ${path}[${i}][1] (lat) must be a finite number, got ${String(lat)}`
+      );
+    }
+    if (lon < -180 || lon > 180) {
+      throw new Error(
+        `Invalid GeoJSON: ${path}[${i}][0] (lon) out of range [-180, 180]: ${lon}`
+      );
+    }
+    if (lat < -90 || lat > 90) {
+      throw new Error(
+        `Invalid GeoJSON: ${path}[${i}][1] (lat) out of range [-90, 90]: ${lat}`
+      );
+    }
+    return [lon, lat];
+  });
+}
+
+/**
+ * Parse a user-loaded local GeoJSON file into a RouteGeometry.
+ *
+ * Accepts: LineString geometry, Feature with LineString geometry,
+ * or FeatureCollection (first LineString feature is used).
+ *
+ * Does NOT interpret GeoJSON properties as event data, speed limits,
+ * or any RoadAhead product truth. Geometry only.
+ *
+ * Throws a descriptive Error on parse or validation failure.
+ * Caller should catch and display the error without modifying active route.
+ *
+ * Route geometry import — Issue #79 / Slice 4.10.
+ * NOT navigation. NOT routing. NOT provider data. NOT Product Canon.
+ */
+function parseUserGeoJsonRoute(
+  json: unknown,
+  filename: string
+): RouteGeometry {
+  if (typeof json !== "object" || json === null) {
+    throw new Error("Invalid GeoJSON: expected a JSON object");
+  }
+  const obj = json as Record<string, unknown>;
+  let coordinates: LonLatCoord[];
+
+  if (obj["type"] === "LineString") {
+    coordinates = extractAndValidateLineStringCoords(
+      obj["coordinates"],
+      "coordinates"
+    );
+  } else if (obj["type"] === "Feature") {
+    const geom = obj["geometry"];
+    if (typeof geom !== "object" || geom === null) {
+      throw new Error("Invalid GeoJSON Feature: missing or null geometry");
+    }
+    const geomObj = geom as Record<string, unknown>;
+    if (geomObj["type"] !== "LineString") {
+      throw new Error(
+        `Invalid GeoJSON Feature: expected LineString geometry, got "${String(geomObj["type"])}"`
+      );
+    }
+    coordinates = extractAndValidateLineStringCoords(
+      geomObj["coordinates"],
+      "geometry.coordinates"
+    );
+  } else if (obj["type"] === "FeatureCollection") {
+    const features = obj["features"];
+    if (!Array.isArray(features)) {
+      throw new Error(
+        "Invalid GeoJSON FeatureCollection: missing or non-array features"
+      );
+    }
+    let found = false;
+    coordinates = [];
+    for (const feat of features) {
+      if (typeof feat !== "object" || feat === null) continue;
+      const f = feat as Record<string, unknown>;
+      const geom = f["geometry"];
+      if (typeof geom !== "object" || geom === null) continue;
+      const geomObj = geom as Record<string, unknown>;
+      if (geomObj["type"] === "LineString") {
+        coordinates = extractAndValidateLineStringCoords(
+          geomObj["coordinates"],
+          "FeatureCollection[0].geometry.coordinates"
+        );
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      throw new Error(
+        "FeatureCollection contains no LineString feature"
+      );
+    }
+  } else {
+    throw new Error(
+      `Unsupported GeoJSON type: "${String(obj["type"])}". ` +
+        `Supported: LineString, Feature (with LineString), FeatureCollection.`
+    );
+  }
+
+  return {
+    coordinates,
+    provenance: {
+      provider: "geojson_import",
+      generated_at: new Date().toISOString(),
+      notes: `Imported from local file: ${filename}. Route geometry only — not provider data, not routing, not navigation.`,
+    },
+  };
+}
+
+/**
+ * Reset the active route to the synthetic fixture.
+ *
+ * Used when:
+ *   - the user clicks "Reset to synthetic route";
+ *   - the user selects a scenario (scenarios are tied to synthetic route).
+ */
+function resetToSyntheticRoute(): void {
+  activeRoute = SYNTHETIC_ROUTE;
+  activeRouteSource = { kind: "synthetic" };
+  routeImportError = null;
+}
+
+// ---------------------------------------------------------------------------
 // Scenario selector helpers (Issue #70)
 // ---------------------------------------------------------------------------
 
@@ -141,7 +343,7 @@ function getState(): SimulationState {
   return computeSimulationState(
     routeProgressPct / 100,
     currentSpeedKmh,
-    SYNTHETIC_ROUTE,
+    activeRoute,
     SYNTHETIC_PREPARED_EVENTS,
     EMULATOR_TUNING_DEFAULTS
   );
@@ -154,8 +356,6 @@ function getState(): SimulationState {
 function buildApp(): void {
   const app = document.querySelector<HTMLDivElement>("#app");
   if (!app) throw new Error("Root #app element not found");
-
-  const { minLon, maxLon } = getRouteLonSpan(SYNTHETIC_ROUTE);
 
   // Build scenario options for the selector drop-down.
   // Reuses SYNTHETIC_SCENARIOS directly — no data duplication.
@@ -185,10 +385,7 @@ function buildApp(): void {
       <div class="op-header-row op-header-top-row">
         <span class="op-header-title">RoadAhead Phase 0 · Operator Simulation</span>
         <span class="op-header-wip-badge">debug / QA only — not driver-facing UI</span>
-        <span class="op-header-route-info">
-          Synthetic E-bound · lon ${minLon.toFixed(3)}° → ${maxLon.toFixed(3)}° ·
-          ${SYNTHETIC_PREPARED_EVENTS.length} events · no real GPS
-        </span>
+        <span class="op-header-route-info" id="op-route-info"><!-- populated by render() --></span>
       </div>
 
       <div class="op-header-row op-header-controls-row">
@@ -265,6 +462,10 @@ function buildApp(): void {
 
       <section class="upcoming-events-section" id="upcoming-events-strip">
         <!-- populated by renderUpcomingEventsStrip() -->
+      </section>
+
+      <section class="route-import-section" id="route-import-section">
+        <!-- populated by renderRouteImportSection() -->
       </section>
 
       <section class="scenario-inspector-section" id="scenario-inspector">
@@ -456,6 +657,8 @@ function attachControls(): void {
   // the scenario definition, then triggers a full render.
   // Choosing "–– none / manual ––" reverts to manual control.
   // Selecting a scenario pauses playback so the fixed position is stable.
+  // Selecting a scenario resets active route to synthetic route, because
+  // scenario expectations are tied to the synthetic fixture (Issue #79).
   // WIP — NOT Product Canon.
   const scenarioSelectEl = document.getElementById(
     "scenario-select"
@@ -470,6 +673,8 @@ function attachControls(): void {
     }
     const scenario = findScenario(id);
     if (!scenario) return;
+    // Reset to synthetic route: scenario expectations are tied to synthetic fixture.
+    resetToSyntheticRoute();
     selectedScenarioId = id;
     routeProgressPct = Math.round(scenario.routeProgressFraction * 100);
     currentSpeedKmh = scenario.speedKmh;
@@ -483,6 +688,73 @@ function attachControls(): void {
     if (speedEl) speedEl.value = String(currentSpeedKmh);
     render();
   });
+
+  // ── GeoJSON route file input (Issue #79 / Slice 4.10) ───────────────────
+  // Loads a local GeoJSON file as the active route geometry.
+  // Route geometry only — no event import, no speed limits, no provider data.
+  // On parse error: shows error, preserves current active route.
+  // On success: sets active route, resets progress, clears scenario, pauses.
+  // NOT navigation. NOT routing. NOT provider data. NOT Product Canon.
+  const geoJsonFileInput = document.getElementById(
+    "geojson-file-input"
+  ) as HTMLInputElement | null;
+  geoJsonFileInput?.addEventListener("change", () => {
+    const file = geoJsonFileInput.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target?.result;
+      if (typeof text !== "string") {
+        routeImportError = "Failed to read file contents.";
+        render();
+        return;
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch (e) {
+        routeImportError = `JSON parse error: ${e instanceof Error ? e.message : String(e)}`;
+        render();
+        return;
+      }
+      try {
+        const imported = parseUserGeoJsonRoute(parsed, file.name);
+        // Success: set active route, reset progress, clear scenario, pause.
+        activeRoute = imported;
+        activeRouteSource = { kind: "geojson", filename: file.name };
+        routeImportError = null;
+        pausePlayback();
+        clearSelectedScenario();
+        routeProgressPct = 0;
+        const slider = document.getElementById(
+          "progress-slider"
+        ) as HTMLInputElement | null;
+        if (slider) slider.value = "0";
+        render();
+      } catch (e) {
+        routeImportError = e instanceof Error ? e.message : String(e);
+        render();
+      }
+      // Reset file input so the same file can be re-loaded if needed.
+      geoJsonFileInput.value = "";
+    };
+    reader.readAsText(file);
+  });
+
+  // ── Reset to synthetic route (Issue #79 / Slice 4.10) ───────────────────
+  document
+    .getElementById("reset-to-synthetic-btn")
+    ?.addEventListener("click", () => {
+      resetToSyntheticRoute();
+      pausePlayback();
+      clearSelectedScenario();
+      routeProgressPct = 0;
+      const slider = document.getElementById(
+        "progress-slider"
+      ) as HTMLInputElement | null;
+      if (slider) slider.value = "0";
+      render();
+    });
 }
 
 function clampSpeed(v: number): number {
@@ -511,9 +783,11 @@ function render(): void {
   const state = getState();
   updateProgressDisplay();
   renderPlaybackStatus();
+  renderOpRouteInfo();
   renderThreeCircles(state);
   renderOperatorHeader(state);
   renderUpcomingEventsStrip(state);
+  renderRouteImportSection();
   renderScenarioInspector();
   renderEvidenceSnapshot(state);
   renderDebugPanel(state);
@@ -1015,9 +1289,9 @@ function renderDebugPanel(state: SimulationState): void {
   const section = document.getElementById("debug-section");
   if (!section) return;
 
-  const { minLon, maxLon } = getRouteLonSpan(SYNTHETIC_ROUTE);
+  const { minLon, maxLon } = getRouteLonSpan(activeRoute);
   const vp = state.vehicleRoutePosition;
-  const provenance = SYNTHETIC_ROUTE.provenance;
+  const provenance = activeRoute.provenance;
 
   // Separate records into reason-kind groups.
   // Uses applicabilityReason.kind from Slice 4.3 / Issue #53.
@@ -1105,7 +1379,7 @@ function renderDebugPanel(state: SimulationState): void {
           <dt>Generated</dt>
           <dd>${escapeHtml(provenance.generated_at)}</dd>
           <dt>Route lon span</dt>
-          <dd>${minLon.toFixed(3)}° → ${maxLon.toFixed(3)}° (synthetic)</dd>
+          <dd>${minLon.toFixed(3)}° → ${maxLon.toFixed(3)}°</dd>
           <dt>Total route length</dt>
           <dd class="proj-derived">${vp.total_route_length_m.toFixed(0)} m <span class="wip-inline">(arc-length, per-session)</span></dd>
           <dt>Notes</dt>
@@ -1237,6 +1511,109 @@ function renderDebugPanel(state: SimulationState): void {
 
   // Attach filter button listeners after innerHTML is set.
   attachDebugFilterListeners(section);
+}
+
+// ---------------------------------------------------------------------------
+// Route import section (Issue #79 / Slice 4.10)
+//
+// Renders route import controls and status into #route-import-section.
+// EMULATOR OPERATOR / QA UI ONLY — NOT THE DRIVER-FACING UI.
+// NOT Product Canon. Not navigation. Not routing. Not provider data.
+// ---------------------------------------------------------------------------
+
+/**
+ * Render the operator header route info span (#op-route-info).
+ *
+ * Updates the active route source label in the sticky header.
+ * Called on every render cycle so it stays in sync with active route state.
+ *
+ * EMULATOR QA ONLY — NOT driver-facing. NOT Product Canon.
+ */
+function renderOpRouteInfo(): void {
+  const el = document.getElementById("op-route-info");
+  if (!el) return;
+  const { minLon, maxLon } = getRouteLonSpan(activeRoute);
+  if (activeRouteSource.kind === "synthetic") {
+    el.textContent =
+      `Synthetic E-bound · lon ${minLon.toFixed(3)}° → ${maxLon.toFixed(3)}° · ` +
+      `${SYNTHETIC_PREPARED_EVENTS.length} events · no real GPS`;
+  } else {
+    el.textContent =
+      `GeoJSON import: ${activeRouteSource.filename} · ` +
+      `lon ${minLon.toFixed(3)}° → ${maxLon.toFixed(3)}° · ` +
+      `${activeRoute.coordinates.length} waypoints · synthetic events · no real GPS`;
+  }
+}
+
+/**
+ * Render the route import section into #route-import-section.
+ *
+ * Shows:
+ *   - file input to load a local GeoJSON route file
+ *   - active route source label
+ *   - reset-to-synthetic button
+ *   - parse error message (if any)
+ *   - disclaimer note
+ *
+ * EMULATOR OPERATOR / QA UI ONLY — NOT THE DRIVER-FACING UI.
+ * Route geometry only — no event import, no speed limits, no provider data.
+ * Not navigation. Not routing. NOT Product Canon. (Issue #79 / Slice 4.10)
+ */
+function renderRouteImportSection(): void {
+  const section = document.getElementById("route-import-section");
+  if (!section) return;
+
+  const sourceLabel =
+    activeRouteSource.kind === "synthetic"
+      ? `<span class="route-source-synthetic">Synthetic fixture (default)</span>`
+      : `<span class="route-source-imported">GeoJSON import: <code>${escapeHtml(activeRouteSource.filename)}</code></span>`;
+
+  const errorHtml =
+    routeImportError !== null
+      ? `<div class="route-import-error-msg" role="alert">
+          <strong>Import error:</strong> ${escapeHtml(routeImportError)}
+         </div>`
+      : "";
+
+  const resetDisabled = activeRouteSource.kind === "synthetic" ? " disabled" : "";
+
+  section.innerHTML = `
+    <h2>Route Geometry Import
+      <span class="wip-badge">local file · geometry only · not routing · not navigation · not Canon</span>
+    </h2>
+    <p class="route-import-disclaimer">
+      <strong>Route geometry only.</strong>
+      Load a local manually-created GeoJSON file to replace the synthetic route.
+      No event import. No speed limits. No provider data. No network.
+      Synthetic scenarios are tied to the synthetic route —
+      selecting a scenario resets to synthetic route.
+    </p>
+    <div class="route-import-controls">
+      <label for="geojson-file-input" class="route-import-file-label">Load GeoJSON route</label>
+      <input
+        type="file"
+        id="geojson-file-input"
+        accept=".json,.geojson"
+        class="route-import-file-input"
+      >
+      <button
+        id="reset-to-synthetic-btn"
+        type="button"
+        class="reset-synthetic-btn"${resetDisabled}
+      >Reset to synthetic route</button>
+    </div>
+    <div class="route-source-row">
+      <span class="route-source-label-text">Active route source:</span>
+      <span class="route-source-value" id="route-source-value">${sourceLabel}</span>
+    </div>
+    ${errorHtml}
+    <p class="route-import-format-note">
+      Supported formats: GeoJSON LineString geometry, GeoJSON Feature (LineString),
+      GeoJSON FeatureCollection (first LineString used).
+      Coordinates must be <code>[longitude, latitude]</code> (WGS84, longitude-first).
+      Minimum 2 coordinate pairs required.
+    </p>
+  `;
 }
 
 // ---------------------------------------------------------------------------
@@ -1586,10 +1963,16 @@ function buildEvidenceSnapshotMarkdown(state: SimulationState): string {
     );
   });
 
+  const routeSourceLine =
+    activeRouteSource.kind === "synthetic"
+      ? "synthetic fixture (default)"
+      : `GeoJSON import: ${activeRouteSource.filename}`;
+
   const lines = [
     `## RoadAhead Emulator Manual Evidence Snapshot`,
     ``,
     `- Mode: ${modeLine}`,
+    `- Active route source: ${routeSourceLine}`,
     `- Route progress: ${progressPct}% / ${state.progress.toFixed(4)}`,
     `- Current speed: ${state.speedKmh} km/h`,
     `- Primary event: ${primaryLine}`,
