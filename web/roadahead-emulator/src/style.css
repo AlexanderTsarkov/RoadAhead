@@ -236,6 +236,49 @@ code {
   color: #777;
 }
 
+/* ── Playback controls (Issue #77 / Slice 4.8) ───────────────────────────── */
+
+.playback-control-row {
+  align-items: center;
+}
+
+.playback-btn {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #fff;
+  background: #2980b9;
+  border: 1px solid #1a6a9a;
+  border-radius: 4px;
+  padding: 0.3rem 0.85rem;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.playback-btn:hover {
+  background: #2471a3;
+  border-color: #1a5c8a;
+}
+
+.playback-btn:active {
+  background: #1a6090;
+}
+
+.playback-status {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #555;
+  min-width: 3.5rem;
+}
+
+.playback-note {
+  font-size: 0.75rem;
+  color: #aaa;
+  font-style: italic;
+}
+
 /* ── Three-circle section ────────────────────────────────────────────────── */
 
 .three-circle-section {

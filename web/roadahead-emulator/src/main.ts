@@ -7,6 +7,7 @@
  * Slice 4.5 / Issue #57: synthetic applicability fixture cases
  * Slice 4.6 / Issue #63: sticky operator simulation header
  * Slice 4.7 / Issue #72: copyable manual evidence snapshot
+ * Slice 4.8 / Issue #77: route playback mode (Play / Pause)
  *
  * Wires together synthetic fixtures, emulator logic, and a minimal UI.
  *
@@ -48,6 +49,33 @@ let routeProgressPct = 0;
  * (validation-emulator Canon truth 6)
  */
 let currentSpeedKmh = 60;
+
+// ---------------------------------------------------------------------------
+// Playback state (Issue #77 / Slice 4.8)
+//
+// Minimal Play / Pause control over existing routeProgressPct state.
+// Playback advances routeProgressPct using requestAnimationFrame and the
+// existing render() path — no separate simulation loop is introduced.
+//
+// All playback constants are WIP emulator values — NOT Product Canon.
+// Not a navigator, not routing, not ETA, not traffic.
+// ---------------------------------------------------------------------------
+
+/** Whether playback is currently running. */
+let isPlaying = false;
+
+/** requestAnimationFrame handle — 0 when no frame is scheduled. */
+let playbackAnimFrameId = 0;
+
+/** DOMHighResTimeStamp of the last animation tick — used to compute delta. */
+let playbackLastTimestamp = 0;
+
+/**
+ * WIP emulator constant: route progress advance rate while playing.
+ * 5 % / second → 20 seconds for a full 0→100% traversal.
+ * WIP default — NOT Product Canon. Adjust freely for product evaluation.
+ */
+const PLAYBACK_SPEED_PCT_PER_SEC = 5;
 
 // ---------------------------------------------------------------------------
 // Debug filter state
@@ -174,6 +202,12 @@ function buildApp(): void {
             >
             <span id="progress-display" class="control-value">0%</span>
           </div>
+          <div class="control-row playback-control-row">
+            <label class="control-label">Playback</label>
+            <button id="playback-btn" class="playback-btn" type="button">▶ Play</button>
+            <span id="playback-status" class="playback-status">paused</span>
+            <span class="playback-note">WIP simulation — not navigation</span>
+          </div>
           <div class="control-row">
             <label class="control-label">Current Speed</label>
             <div class="speed-control-group">
@@ -271,6 +305,100 @@ function buildApp(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Playback helpers (Issue #77 / Slice 4.8)
+//
+// startPlayback / pausePlayback / tickPlayback advance routeProgressPct
+// through the existing render() path. No new simulation state is created.
+//
+// EMULATOR OPERATOR / QA UI ONLY — NOT THE DRIVER-FACING UI.
+// WIP / not Product Canon. Not a navigator. Not ETA. Not routing.
+// ---------------------------------------------------------------------------
+
+/**
+ * Advance progress on each animation frame while playing.
+ * Uses delta time to keep advancement rate constant regardless of frame rate.
+ */
+function tickPlayback(timestamp: DOMHighResTimeStamp): void {
+  if (!isPlaying) return;
+
+  if (playbackLastTimestamp !== 0) {
+    const deltaSeconds = (timestamp - playbackLastTimestamp) / 1000;
+    routeProgressPct = Math.min(
+      100,
+      routeProgressPct + PLAYBACK_SPEED_PCT_PER_SEC * deltaSeconds
+    );
+
+    // Sync the progress slider DOM value so it stays in sync with playback.
+    const slider = document.getElementById(
+      "progress-slider"
+    ) as HTMLInputElement | null;
+    if (slider) slider.value = String(Math.round(routeProgressPct));
+
+    render();
+
+    if (routeProgressPct >= 100) {
+      pausePlayback();
+      return;
+    }
+  }
+
+  playbackLastTimestamp = timestamp;
+  playbackAnimFrameId = requestAnimationFrame(tickPlayback);
+}
+
+/** Start playback from the current routeProgressPct. */
+function startPlayback(): void {
+  if (isPlaying) return;
+  if (routeProgressPct >= 100) {
+    // Already at end — reset to 0 so Play is useful.
+    routeProgressPct = 0;
+    const slider = document.getElementById(
+      "progress-slider"
+    ) as HTMLInputElement | null;
+    if (slider) slider.value = "0";
+  }
+  isPlaying = true;
+  playbackLastTimestamp = 0;
+  playbackAnimFrameId = requestAnimationFrame(tickPlayback);
+  renderPlaybackStatus();
+}
+
+/** Pause playback and cancel any pending animation frame. */
+function pausePlayback(): void {
+  if (!isPlaying && playbackAnimFrameId === 0) return;
+  isPlaying = false;
+  if (playbackAnimFrameId !== 0) {
+    cancelAnimationFrame(playbackAnimFrameId);
+    playbackAnimFrameId = 0;
+  }
+  playbackLastTimestamp = 0;
+  renderPlaybackStatus();
+}
+
+/** Toggle between play and pause. */
+function togglePlayback(): void {
+  if (isPlaying) {
+    pausePlayback();
+  } else {
+    startPlayback();
+  }
+}
+
+/**
+ * Update the Play/Pause button label and status text to reflect isPlaying.
+ * Uses textContent — does NOT recreate DOM nodes, so focus is preserved.
+ */
+function renderPlaybackStatus(): void {
+  const btn = document.getElementById(
+    "playback-btn"
+  ) as HTMLButtonElement | null;
+  const statusEl = document.getElementById("playback-status");
+  if (btn) btn.textContent = isPlaying ? "⏸ Pause" : "▶ Play";
+  if (statusEl)
+    statusEl.textContent = isPlaying ? "running" : "paused";
+}
+
+// ---------------------------------------------------------------------------
 // Control wiring
 // ---------------------------------------------------------------------------
 
@@ -283,6 +411,7 @@ function attachControls(): void {
   ) as HTMLInputElement | null;
 
   progressSlider?.addEventListener("input", () => {
+    pausePlayback();
     clearSelectedScenario();
     routeProgressPct = parseInt(progressSlider.value, 10);
     render();
@@ -291,6 +420,7 @@ function attachControls(): void {
   speedInputEl?.addEventListener("change", () => {
     const val = parseInt(speedInputEl.value, 10);
     if (!isNaN(val)) {
+      pausePlayback();
       clearSelectedScenario();
       currentSpeedKmh = clampSpeed(val);
       speedInputEl.value = String(currentSpeedKmh);
@@ -311,15 +441,22 @@ function attachControls(): void {
     .getElementById("speed-up-10")
     ?.addEventListener("click", () => adjustSpeed(10));
 
+  // ── Playback button (Issue #77 / Slice 4.8) ─────────────────────────────
+  document
+    .getElementById("playback-btn")
+    ?.addEventListener("click", togglePlayback);
+
   // ── Scenario selector (Issue #70) ──────────────────────────────────────
   // Selecting a scenario applies routeProgressFraction and speedKmh from
   // the scenario definition, then triggers a full render.
   // Choosing "–– none / manual ––" reverts to manual control.
+  // Selecting a scenario pauses playback so the fixed position is stable.
   // WIP — NOT Product Canon.
   const scenarioSelectEl = document.getElementById(
     "scenario-select"
   ) as HTMLSelectElement | null;
   scenarioSelectEl?.addEventListener("change", () => {
+    pausePlayback();
     const id = scenarioSelectEl.value;
     if (!id) {
       selectedScenarioId = null;
@@ -348,6 +485,7 @@ function clampSpeed(v: number): number {
 }
 
 function adjustSpeed(delta: number): void {
+  pausePlayback();
   clearSelectedScenario();
   currentSpeedKmh = clampSpeed(currentSpeedKmh + delta);
   const el = document.getElementById("speed-input") as HTMLInputElement | null;
@@ -367,6 +505,7 @@ function adjustSpeed(delta: number): void {
 function render(): void {
   const state = getState();
   updateProgressDisplay();
+  renderPlaybackStatus();
   renderThreeCircles(state);
   renderOperatorHeader(state);
   renderScenarioInspector();
