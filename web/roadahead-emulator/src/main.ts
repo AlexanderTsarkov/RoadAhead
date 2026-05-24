@@ -31,6 +31,8 @@ import {
 } from "./emulator/simulationState.js";
 import { getRouteLonSpan } from "./emulator/routeProgress.js";
 import type { EventSelectionRecord } from "./emulator/minimalEventSelection.js";
+import { SYNTHETIC_SCENARIOS } from "./emulator/scenarios/syntheticScenarios.js";
+import type { EmulatorScenario } from "./emulator/scenarios/scenarioTypes.js";
 
 // ---------------------------------------------------------------------------
 // Mutable simulation inputs (user-controlled)
@@ -67,6 +69,41 @@ type DebugFilterMode = "all" | "accepted" | "suppressed" | "not_driver_facing";
 let debugFilter: DebugFilterMode = "all";
 
 // ---------------------------------------------------------------------------
+// Scenario selector state (Issue #70)
+//
+// Tracks the currently selected synthetic scenario for browser QA inspection.
+// null = manual control (no scenario selected).
+// Setting a scenario applies routeProgressFraction and speedKmh from the
+// scenario definition; manual slider/speed changes clear the selection.
+//
+// WIP — NOT Product Canon. Selector is a QA / debug aid only.
+// ---------------------------------------------------------------------------
+
+/** Currently selected scenario ID for browser QA inspection, or null (manual). */
+let selectedScenarioId: string | null = null;
+
+// ---------------------------------------------------------------------------
+// Scenario selector helpers (Issue #70)
+// ---------------------------------------------------------------------------
+
+/** Look up a scenario by ID from SYNTHETIC_SCENARIOS. Returns null if not found. */
+function findScenario(id: string): EmulatorScenario | null {
+  return SYNTHETIC_SCENARIOS.find((s) => s.id === id) ?? null;
+}
+
+/**
+ * Clear the selected scenario — revert to manual control.
+ * Called when the user manually moves the progress slider or changes speed
+ * after a scenario was applied, so the selector does not misleadingly claim
+ * exact scenario state.
+ */
+function clearSelectedScenario(): void {
+  selectedScenarioId = null;
+  const sel = document.getElementById("scenario-select") as HTMLSelectElement | null;
+  if (sel) sel.value = "";
+}
+
+// ---------------------------------------------------------------------------
 // State computation
 // ---------------------------------------------------------------------------
 
@@ -89,6 +126,14 @@ function buildApp(): void {
   if (!app) throw new Error("Root #app element not found");
 
   const { minLon, maxLon } = getRouteLonSpan(SYNTHETIC_ROUTE);
+
+  // Build scenario options for the selector drop-down.
+  // Reuses SYNTHETIC_SCENARIOS directly — no data duplication.
+  // WIP — NOT Product Canon.
+  const scenarioOptions = SYNTHETIC_SCENARIOS.map(
+    (s) =>
+      `<option value="${escapeHtml(s.id)}">${escapeHtml(s.id)} — ${escapeHtml(s.title)}</option>`
+  ).join("\n              ");
 
   // ---------------------------------------------------------------------------
   // Sticky operator simulation header (Slice 4.6 / Issue #63)
@@ -145,6 +190,13 @@ function buildApp(): void {
               <span class="unit">km/h</span>
             </div>
           </div>
+          <div class="control-row">
+            <label for="scenario-select" class="control-label">Scenario</label>
+            <select id="scenario-select" class="scenario-select">
+              <option value="">–– none / manual ––</option>
+              ${scenarioOptions}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -173,6 +225,10 @@ function buildApp(): void {
         Reason / status names shown in the debug panel are WIP / not Product Canon.
         Uses <strong>synthetic fixtures only</strong> — no Yandex API, no provider, no network,
         no account required.
+      </section>
+
+      <section class="scenario-inspector-section" id="scenario-inspector">
+        <!-- populated by renderScenarioInspector() -->
       </section>
 
       <section class="debug-section" id="debug-section">
@@ -222,6 +278,7 @@ function attachControls(): void {
   ) as HTMLInputElement | null;
 
   progressSlider?.addEventListener("input", () => {
+    clearSelectedScenario();
     routeProgressPct = parseInt(progressSlider.value, 10);
     render();
   });
@@ -229,6 +286,7 @@ function attachControls(): void {
   speedInputEl?.addEventListener("change", () => {
     const val = parseInt(speedInputEl.value, 10);
     if (!isNaN(val)) {
+      clearSelectedScenario();
       currentSpeedKmh = clampSpeed(val);
       speedInputEl.value = String(currentSpeedKmh);
       render();
@@ -247,6 +305,37 @@ function attachControls(): void {
   document
     .getElementById("speed-up-10")
     ?.addEventListener("click", () => adjustSpeed(10));
+
+  // ── Scenario selector (Issue #70) ──────────────────────────────────────
+  // Selecting a scenario applies routeProgressFraction and speedKmh from
+  // the scenario definition, then triggers a full render.
+  // Choosing "–– none / manual ––" reverts to manual control.
+  // WIP — NOT Product Canon.
+  const scenarioSelectEl = document.getElementById(
+    "scenario-select"
+  ) as HTMLSelectElement | null;
+  scenarioSelectEl?.addEventListener("change", () => {
+    const id = scenarioSelectEl.value;
+    if (!id) {
+      selectedScenarioId = null;
+      render();
+      return;
+    }
+    const scenario = findScenario(id);
+    if (!scenario) return;
+    selectedScenarioId = id;
+    routeProgressPct = Math.round(scenario.routeProgressFraction * 100);
+    currentSpeedKmh = scenario.speedKmh;
+    const slider = document.getElementById(
+      "progress-slider"
+    ) as HTMLInputElement | null;
+    if (slider) slider.value = String(routeProgressPct);
+    const speedEl = document.getElementById(
+      "speed-input"
+    ) as HTMLInputElement | null;
+    if (speedEl) speedEl.value = String(currentSpeedKmh);
+    render();
+  });
 }
 
 function clampSpeed(v: number): number {
@@ -254,6 +343,7 @@ function clampSpeed(v: number): number {
 }
 
 function adjustSpeed(delta: number): void {
+  clearSelectedScenario();
   currentSpeedKmh = clampSpeed(currentSpeedKmh + delta);
   const el = document.getElementById("speed-input") as HTMLInputElement | null;
   if (el) el.value = String(currentSpeedKmh);
@@ -274,6 +364,7 @@ function render(): void {
   updateProgressDisplay();
   renderThreeCircles(state);
   renderOperatorHeader(state);
+  renderScenarioInspector();
   renderDebugPanel(state);
 }
 
@@ -887,6 +978,135 @@ function renderDebugPanel(state: SimulationState): void {
 
   // Attach filter button listeners after innerHTML is set.
   attachDebugFilterListeners(section);
+}
+
+// ---------------------------------------------------------------------------
+// Scenario inspector (Issue #70)
+//
+// Renders selected synthetic scenario metadata to #scenario-inspector.
+// Shows expected values from the scenario definition for QA comparison.
+// Does NOT duplicate domain logic from runScenarioSweep.ts.
+//
+// WIP / QA tool only — NOT the driver-facing UI. NOT Product Canon.
+// ---------------------------------------------------------------------------
+
+/**
+ * Render the scenario inspector panel for the currently selected scenario.
+ *
+ * Shows scenario id, title, applied inputs, and expected outcomes from the
+ * scenario definition. When no scenario is selected, shows a "manual control"
+ * notice. Expected values are for QA comparison only — actual values are in
+ * the debug panel below.
+ *
+ * EMULATOR DEBUG / QA ONLY — not driver-facing. NOT Product Canon.
+ */
+function renderScenarioInspector(): void {
+  const el = document.getElementById("scenario-inspector");
+  if (!el) return;
+
+  if (!selectedScenarioId) {
+    el.innerHTML = `
+      <h2>Scenario Inspector <span class="wip-badge">debug / QA only</span></h2>
+      <p class="scenario-inspector-empty">No scenario selected — manual control active.
+        Select a scenario from the <strong>Scenario</strong> dropdown in the header above.</p>
+    `;
+    return;
+  }
+
+  const scenario = findScenario(selectedScenarioId);
+  if (!scenario) {
+    el.innerHTML = `
+      <h2>Scenario Inspector <span class="wip-badge">debug / QA only</span></h2>
+      <p class="scenario-inspector-empty">Scenario not found: ${escapeHtml(selectedScenarioId)}</p>
+    `;
+    return;
+  }
+
+  const progressPct = (scenario.routeProgressFraction * 100).toFixed(0);
+
+  const primaryEventHtml =
+    scenario.expectedPrimaryEventId !== undefined
+      ? scenario.expectedPrimaryEventId !== null
+        ? `<code>${escapeHtml(scenario.expectedPrimaryEventId)}</code>`
+        : `<em>none</em>`
+      : `<em class="scenario-check-skipped">check skipped</em>`;
+
+  const refStateHtml =
+    scenario.expectedSpeedReferenceState !== undefined
+      ? `<code>${escapeHtml(scenario.expectedSpeedReferenceState)}</code>`
+      : `<em class="scenario-check-skipped">check skipped</em>`;
+
+  const targetSpeedHtml =
+    scenario.expectedTargetSpeedKmh !== undefined
+      ? scenario.expectedTargetSpeedKmh !== null
+        ? `${scenario.expectedTargetSpeedKmh} km/h <span class="scenario-advisory-note">(advisory, not legal)</span>`
+        : `<em>none</em>`
+      : `<em class="scenario-check-skipped">check skipped</em>`;
+
+  const checksCount = scenario.eventChecks?.length ?? 0;
+  const checksHtml =
+    checksCount === 0
+      ? `<li><em>no per-event checks defined</em></li>`
+      : (scenario.eventChecks ?? [])
+          .map((check) => {
+            const parts: string[] = [
+              `<code class="scenario-check-eventid">${escapeHtml(check.eventId)}</code>`,
+            ];
+            if (check.expectedStatus !== undefined)
+              parts.push(`status: <code>${escapeHtml(check.expectedStatus)}</code>`);
+            if (check.expectedReasonCode !== undefined)
+              parts.push(`code: <code>${escapeHtml(check.expectedReasonCode)}</code>`);
+            if (check.expectedReasonKind !== undefined)
+              parts.push(`kind: <code>${escapeHtml(check.expectedReasonKind)}</code>`);
+            if (check.expectNonZeroCrossTrack)
+              parts.push(`cross-track &gt; 0`);
+            return `<li>${parts.join(" · ")}</li>`;
+          })
+          .join("\n");
+
+  el.innerHTML = `
+    <h2>Scenario Inspector <span class="wip-badge">debug / QA only — not Product Canon</span></h2>
+    <p class="scenario-inspector-note">
+      Expected values from scenario definition — WIP QA/debug comparison only, not Product Canon.
+      Actual emulator output is shown in the debug panel below.
+    </p>
+    <div class="scenario-inspector-grid">
+      <div class="scenario-meta-item">
+        <span class="scenario-meta-label">ID</span>
+        <code class="scenario-meta-value">${escapeHtml(scenario.id)}</code>
+      </div>
+      <div class="scenario-meta-item scenario-meta-title-item">
+        <span class="scenario-meta-label">Title</span>
+        <span class="scenario-meta-value">${escapeHtml(scenario.title)}</span>
+      </div>
+      <div class="scenario-meta-item">
+        <span class="scenario-meta-label">Route progress</span>
+        <span class="scenario-meta-value"><code>${scenario.routeProgressFraction}</code> (${progressPct}%)</span>
+      </div>
+      <div class="scenario-meta-item">
+        <span class="scenario-meta-label">Speed (applied)</span>
+        <span class="scenario-meta-value">${scenario.speedKmh} km/h</span>
+      </div>
+      <div class="scenario-meta-item">
+        <span class="scenario-meta-label">Expected primary event</span>
+        <span class="scenario-meta-value">${primaryEventHtml}</span>
+      </div>
+      <div class="scenario-meta-item">
+        <span class="scenario-meta-label">Expected ref state</span>
+        <span class="scenario-meta-value">${refStateHtml}</span>
+      </div>
+      <div class="scenario-meta-item">
+        <span class="scenario-meta-label">Expected target speed</span>
+        <span class="scenario-meta-value">${targetSpeedHtml}</span>
+      </div>
+    </div>
+    <div class="scenario-checks-block">
+      <h3>Event checks (${checksCount})</h3>
+      <ul class="scenario-checks-list">
+        ${checksHtml}
+      </ul>
+    </div>
+  `;
 }
 
 // ---------------------------------------------------------------------------

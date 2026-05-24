@@ -1167,3 +1167,122 @@ code {
   border-radius: 4px;
   padding: 0.5rem 0.75rem;
 }
+
+/* ── Scenario selector (Issue #70) ──────────────────────────────────────── */
+/*
+ * EMULATOR QA / DEBUG ONLY — NOT THE DRIVER-FACING UI.
+ * Native <select> inside the sticky operator header for jumping to synthetic
+ * scenario inputs in manual browser QA.
+ * WIP — NOT Product Canon.
+ */
+
+.scenario-select {
+  flex: 1;
+  min-width: 0;
+  max-width: 560px;
+  font-size: 0.82rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid #3a526a;
+  background: #1b2a3d;
+  color: #eef3f8;
+  cursor: pointer;
+}
+
+.scenario-select:focus {
+  outline: 2px solid #5ba8e5;
+  outline-offset: 1px;
+}
+
+/* ── Scenario inspector section (Issue #70) ──────────────────────────────── */
+/*
+ * EMULATOR QA / DEBUG ONLY — NOT THE DRIVER-FACING UI.
+ * Shows selected scenario metadata and expected values for manual QA
+ * comparison against actual emulator output in the debug panel below.
+ * WIP — NOT Product Canon.
+ */
+
+.scenario-inspector-section {
+  border-left: 4px solid #8e44ad;
+  background: #fdf8ff;
+}
+
+.scenario-inspector-empty {
+  color: #888;
+  font-style: italic;
+  font-size: 0.88rem;
+}
+
+.scenario-inspector-note {
+  font-size: 0.8rem;
+  color: #666;
+  font-style: italic;
+  margin-bottom: 0.75rem;
+  border-left: 3px solid #d0b0e8;
+  padding-left: 0.5rem;
+}
+
+.scenario-inspector-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.scenario-meta-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+}
+
+.scenario-meta-title-item {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.scenario-meta-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #7a4aaa;
+  margin-bottom: 0.1rem;
+}
+
+.scenario-meta-value {
+  font-size: 0.88rem;
+  color: #222;
+  word-break: break-word;
+}
+
+.scenario-checks-block {
+  border-top: 1px solid #e0d0f0;
+  padding-top: 0.6rem;
+  margin-top: 0.25rem;
+}
+
+.scenario-checks-list {
+  padding-left: 1.4rem;
+  margin: 0.4rem 0 0;
+  font-size: 0.82rem;
+  color: #333;
+}
+
+.scenario-checks-list li {
+  margin-bottom: 0.3rem;
+}
+
+.scenario-check-eventid {
+  font-weight: 700;
+}
+
+.scenario-check-skipped {
+  color: #aaa;
+  font-style: italic;
+}
+
+.scenario-advisory-note {
+  font-size: 0.78rem;
+  color: #888;
+  font-style: italic;
+}
