@@ -66,7 +66,14 @@
  *   - Full suppression reason taxonomy
  *
  * Selection scope (Issue #65): speed_limit and static_camera events.
- * road_bump and other types remain out_of_scope until a later child issue.
+ * Selection scope extended in Issue #75: road_bump / hazardous road segment
+ * candidates. road_bump enters the same existing applicability pipeline as
+ * speed_limit and static_camera: projection → signed distance → min/max lookahead
+ * → cross-track rejection → direction compatibility. WIP per-type lookahead
+ * guardrails apply from EmulatorTuningConfig.lookahead.road_bump. No advisory
+ * target speed is introduced for road_bump events; speedReference stays "unknown"
+ * when a road_bump event is primary. Full hazard display semantics are deferred
+ * to Issue #76. WIP — NOT Product Canon.
  *
  * Canon authority:
  *   docs/product/areas/event-applicability/event-applicability.md
@@ -236,8 +243,19 @@ export interface EventSelectionResult {
  * Returns null for types not yet in the applicability processing scope.
  * A null result routes the event to out_of_scope status.
  *
+ * In-scope types (WIP — NOT Product Canon):
+ *   speed_limit    — first vertical slice (Issue #49 / #65)
+ *   static_camera  — Issue #65 eligibility baseline
+ *   road_bump      — Issue #75 hazardous road segment eligibility baseline
+ *
+ * road_bump uses WIP per-type lookahead guardrails:
+ *   EmulatorTuningConfig.lookahead.road_bump (WIP defaults — not Canon).
+ * No target speed is introduced for road_bump events; speedReference remains
+ * "unknown" when road_bump is the selected primary event.
+ * Full hazard display semantics deferred to Issue #76.
+ *
  * WIP — NOT Product Canon. Lookahead values are WIP emulator defaults.
- * (tuning-and-validation Canon truths 1, 2)
+ * (tuning-and-validation Canon truths 1, 2; Issue #75 WIP baseline)
  */
 function getEventLookaheadGuardrails(
   normalized_type: string,
@@ -245,6 +263,7 @@ function getEventLookaheadGuardrails(
 ): LookaheadGuardrails | null {
   if (normalized_type === "speed_limit") return config.lookahead.speed_limit;
   if (normalized_type === "static_camera") return config.lookahead.static_camera;
+  if (normalized_type === "road_bump") return config.lookahead.road_bump;
   return null;
 }
 
@@ -259,10 +278,10 @@ function getEventLookaheadGuardrails(
  * Selection rules (uses projection-derived along-route distance + direction
  * compatibility from Slice 4.2):
  *
- *  1. Events not in the applicability processing scope (road_bump and other
- *     non-speed_limit/non-static_camera types) → status: out_of_scope.
- *     speed_limit and static_camera are processed through the full pipeline.
- *     (Issue #65 — WIP extension; NOT Product Canon)
+ *  1. Events not in the applicability processing scope → status: out_of_scope.
+ *     speed_limit, static_camera, and road_bump are processed through the full
+ *     pipeline. Other types (if any future types are added) remain out_of_scope.
+ *     (Issue #65 — static_camera WIP extension; Issue #75 — road_bump WIP; NOT Canon)
  *  2. In-scope events with no projection record → status: projection_missing.
  *     Conservative: suppress rather than inferring distance=0 ("behind"). (Slice 4.3 WIP)
  *  3. In-scope events with negative or zero distance → status: behind.
@@ -333,8 +352,9 @@ export function selectEvents(
     const dirCompat = dirCompatMap.get(event.event_id) ?? null;
 
     // Route events not in the applicability processing scope to out_of_scope.
-    // speed_limit and static_camera are processed; road_bump and others are not.
-    // (Issue #65 — WIP extension to static_camera; NOT Product Canon)
+    // speed_limit, static_camera, and road_bump are processed through the full
+    // pipeline. Any other event type returns null and is routed out_of_scope.
+    // (Issue #65 — static_camera WIP extension; Issue #75 — road_bump WIP; NOT Canon)
     const guardrails = getEventLookaheadGuardrails(event.normalized_type, config);
     if (guardrails === null) {
       records.push({
@@ -345,7 +365,7 @@ export function selectEvents(
         projection_along_route_m: proj?.projection.best.along_route_m ?? 0,
         projection_cross_track_m: proj?.projection.best.cross_track_m ?? 0,
         status: "out_of_scope",
-        reason: `Type "${event.normalized_type}" is not in the current applicability processing scope (speed_limit and static_camera only in this slice). WIP — NOT Canon.`,
+        reason: `Type "${event.normalized_type}" is not in the current applicability processing scope (speed_limit, static_camera, road_bump are processed; others are not). WIP — NOT Canon.`,
         applicabilityReason: makeApplicabilityReason("event_type_out_of_scope"),
         directionCompatibility: null,
       });

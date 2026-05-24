@@ -42,14 +42,18 @@
  *   evt-007  lon=37.648  static_camera  east (90°, dirtype=1)  → compatible; eligible when in window
  *   evt-008  lon=37.632  static_camera  west (270°, dirtype=1) → direction_conflict (suppressed)
  *   evt-009  lon=37.643, lat=55.751 (off-route ~111 m north)   → off_route_cross_track (Issue #67)
+ *   evt-010  lon=37.659  road_bump  east (90°, dirtype=1)  → compatible; eligible when in window; no target speed (Issue #75)
+ *   evt-011  lon=37.634  road_bump  west (270°, dirtype=1) → direction_conflict (suppressed) (Issue #75)
  *
  * Approximate along-route positions from route start:
- *   evt-004 ≈  1187 m   evt-001 ≈ 1499 m   evt-008 ≈ 1999 m   evt-003 ≈ 2373 m
- *   evt-009 ≈  2687 m   evt-006 ≈  2503 m   evt-007 ≈ 2998 m   evt-002 ≈ 3186 m   evt-005 ≈ 3436 m
+ *   evt-004 ≈  1187 m   evt-001 ≈ 1499 m   evt-008 ≈ 1999 m   evt-011 ≈ 2133 m   evt-003 ≈ 2373 m
+ *   evt-006 ≈  2503 m   evt-009 ≈  2687 m   evt-007 ≈ 2998 m   evt-002 ≈ 3186 m   evt-005 ≈ 3436 m
+ *   evt-010 ≈  3701 m
  *
  * WIP lookahead windows (EMULATOR_TUNING_DEFAULTS):
  *   speed_limit:    [175 m,  900 m] from vehicle
  *   static_camera:  [250 m, 1100 m] from vehicle
+ *   road_bump:      [100 m,  500 m] from vehicle
  *
  * Canon authority: docs/product/areas/
  * NOT Canon: this module and all scenario definitions are WIP.
@@ -58,9 +62,9 @@
 import type { EmulatorScenario } from "./scenarioTypes.js";
 
 /**
- * Initial synthetic scenario set for Phase 0 emulator sweep.
+ * Synthetic scenario set for Phase 0 emulator sweep.
  *
- * 8 scenarios covering the debug states defined in Issue #59 scope.
+ * 16 scenarios covering the debug states defined in Issues #59, #65, #67, #75.
  * Designed to be manually reviewable — not exhaustive.
  *
  * WIP VALIDATION EVIDENCE — NOT PRODUCT CANON.
@@ -429,18 +433,24 @@ export const SYNTHETIC_SCENARIOS: EmulatorScenario[] = [
   //
   // WIP VALIDATION EVIDENCE for Issue #65 — NOT Product Canon.
   //
-  // Vehicle at progress ≈ 75% (≈ 3515 m from route start).
-  // evt-007 (static_camera, east) at ≈ 2998 m → ≈ 517 m behind vehicle →
+  // Vehicle at progress ≈ 80% (≈ 3765 m from route start).
+  // evt-007 (static_camera, east) at ≈ 2998 m → ≈ 767 m behind vehicle →
   // behind (negative along-route distance) → suppressed with behind_vehicle reason.
   // No primary event. Speed reference = unknown.
+  //
+  // NOTE: Progress updated from 75% to 80% in Issue #75 to account for the new
+  // evt-010 road_bump fixture (at ~3701 m): at 75% evt-010 was 172 m ahead and
+  // became the primary candidate; at 80% evt-010 is ~64 m behind and is
+  // suppressed with "behind" status. The static_camera_behind behavior under
+  // test is unchanged — only the position was shifted to clear the new fixture.
   //
   // WIP — NOT Canon. "behind" status is per-session derived data.
   // (event-applicability Canon truth 13; Issue #65 WIP baseline)
   // ---------------------------------------------------------------------------
   {
     id: "S-010",
-    title: "static_camera_behind — evt-007 (east) is behind vehicle at ~75% progress",
-    routeProgressFraction: 0.75,
+    title: "static_camera_behind — evt-007 (east) is behind vehicle at ~80% progress",
+    routeProgressFraction: 0.80,
     speedKmh: 60,
 
     expectedPrimaryEventId: null,
@@ -457,6 +467,14 @@ export const SYNTHETIC_SCENARIOS: EmulatorScenario[] = [
       // evt-002 (speed_limit, east): also behind at this progress.
       {
         eventId: "synthetic-evt-002",
+        expectedStatus: "behind",
+        expectedReasonCode: "behind_vehicle",
+        expectedReasonKind: "suppressed",
+      },
+      // evt-010 (road_bump, east): also behind at this progress (Issue #75).
+      // Confirms road_bump fixture does not interfere with the behind check.
+      {
+        eventId: "synthetic-evt-010",
         expectedStatus: "behind",
         expectedReasonCode: "behind_vehicle",
         expectedReasonKind: "suppressed",
@@ -662,6 +680,137 @@ export const SYNTHETIC_SCENARIOS: EmulatorScenario[] = [
       // Confirms on-route static_camera candidate behavior is not affected.
       {
         eventId: "synthetic-evt-007",
+        expectedStatus: "too_far",
+        expectedReasonCode: "outside_max_lookahead",
+        expectedReasonKind: "suppressed",
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
+  // S-015: road_bump_accepted_as_primary (Issue #75)
+  //
+  // WIP VALIDATION EVIDENCE for Issue #75 — NOT Product Canon.
+  //
+  // Vehicle at progress ≈ 72% (≈ 3388 m from route start).
+  // evt-010 (road_bump, east, 90°, dirtype=1) at ≈ 3701 m → ≈ 313 m ahead →
+  // within road_bump lookahead window [100–500 m]; direction compatible
+  // (delta ≈ 0°) → candidate → selected as primary advisory event context.
+  //
+  // At this position all speed_limit events and static_camera candidates are
+  // either behind the vehicle or outside their respective windows:
+  //   evt-001, evt-002, evt-003, evt-004: behind
+  //   evt-005 (static_camera): ≈ 48 m ahead → < 250 m static_camera min → too_close
+  //   evt-007, evt-008: behind
+  //   evt-006, evt-009: behind (off-route, behind)
+  //   evt-011 (road_bump, westbound): behind
+  // So evt-010 is the only candidate and is selected as the primary advisory context.
+  //
+  // speedReference = "unknown" because road_bump has no target_speed_kmh.
+  // This is correct per-design: no advisory target speed is fabricated for
+  // road_bump/hazard events. (speed-reference Canon truths 4, 5)
+  //
+  // This scenario proves that road_bump:
+  //   - is processed through the applicability pipeline (not out_of_scope);
+  //   - uses the road_bump [100–500 m] WIP lookahead window correctly;
+  //   - can be selected as primary advisory context when eligible;
+  //   - does not fabricate a target speed when selected as primary.
+  //
+  // "Accepted / driver-facing eligible" in this context means the event passes
+  // emulator QA/debug pipeline checks. This is emulator/QA visibility only —
+  // NOT a final driver-facing product UI claim. NOT anti-radar. NOT an
+  // enforcement warning. NOT a legal authority claim. Advisory candidate only.
+  // Full display semantics for road_bump deferred to Issue #76.
+  //
+  // WIP — NOT Canon. Lookahead thresholds are WIP emulator defaults.
+  // (tuning-and-validation Canon truths 1, 2; Issue #75 WIP baseline)
+  // ---------------------------------------------------------------------------
+  {
+    id: "S-015",
+    title: "road_bump_accepted_as_primary — evt-010 (east, compatible) selected at ~72% progress",
+    routeProgressFraction: 0.72,
+    speedKmh: 60,
+
+    expectedPrimaryEventId: "synthetic-evt-010",
+    expectedSpeedReferenceState: "unknown",
+    expectedTargetSpeedKmh: null,
+
+    eventChecks: [
+      // evt-010 (road_bump, east): compatible direction, in window → selected.
+      // No target speed is fabricated; speedReference = unknown.
+      {
+        eventId: "synthetic-evt-010",
+        expectedStatus: "selected",
+        expectedReasonCode: "selected_primary",
+        expectedReasonKind: "accepted",
+      },
+      // evt-002 (speed_limit, east, 40 km/h): behind vehicle at this progress.
+      // Confirms speed_limit behavior is unchanged.
+      {
+        eventId: "synthetic-evt-002",
+        expectedStatus: "behind",
+        expectedReasonCode: "behind_vehicle",
+        expectedReasonKind: "suppressed",
+      },
+    ],
+  },
+
+  // ---------------------------------------------------------------------------
+  // S-016: road_bump_direction_conflict_suppressed (Issue #75)
+  //
+  // WIP VALIDATION EVIDENCE for Issue #75 — NOT Product Canon.
+  //
+  // Vehicle at progress ≈ 40% (≈ 1882 m from route start).
+  // evt-011 (road_bump, west, 270°, dirtype=1) at ≈ 2133 m → ≈ 251 m ahead →
+  // within road_bump lookahead window [100–500 m]; direction delta ≈ 180°
+  // > reject threshold (60°) → direction_conflict → suppressed from driver-facing.
+  // Visible in debug / QA only. No primary event. Speed reference = unknown.
+  //
+  // This scenario proves that road_bump candidates:
+  //   - pass through the direction compatibility check (not unconditionally accepted);
+  //   - are correctly suppressed with direction_conflict when incompatible;
+  //   - remain debug-visible as suppressed candidates (not blanket out_of_scope).
+  //
+  // At this position other events:
+  //   evt-002 (speed_limit, east): ≈ 1304 m ahead → > 900 m → too_far
+  //   evt-010 (road_bump, east): ≈ 1819 m ahead → > 500 m road_bump max → too_far
+  //   evt-003 (speed_limit, west): ≈ 491 m ahead → in window; direction_conflict (suppressed)
+  //   evt-006 (speed_limit, off-route): in window; off_route_cross_track (suppressed)
+  // No primary event. Speed reference = unknown.
+  //
+  // WIP — NOT Canon. direction_conflict status and thresholds are WIP defaults.
+  // (event-applicability Canon truth 12; Issue #75 WIP baseline)
+  // ---------------------------------------------------------------------------
+  {
+    id: "S-016",
+    title: "road_bump_direction_conflict_suppressed — evt-011 (west, delta≈180°) in window at ~40%",
+    routeProgressFraction: 0.40,
+    speedKmh: 60,
+
+    expectedPrimaryEventId: null,
+    expectedSpeedReferenceState: "unknown",
+
+    eventChecks: [
+      // evt-011 (road_bump, west, 270°): in road_bump window [100–500 m];
+      // direction_conflict → suppressed from driver-facing, visible in debug.
+      {
+        eventId: "synthetic-evt-011",
+        expectedStatus: "direction_conflict",
+        expectedReasonCode: "direction_conflict",
+        expectedReasonKind: "suppressed",
+      },
+      // evt-010 (road_bump, east): too_far at this position (> 500 m road_bump max).
+      // Confirms the correct road_bump max_lookahead guardrail is applied.
+      {
+        eventId: "synthetic-evt-010",
+        expectedStatus: "too_far",
+        expectedReasonCode: "outside_max_lookahead",
+        expectedReasonKind: "suppressed",
+      },
+      // evt-002 (speed_limit, east, 40 km/h): too_far at this position (> 900 m).
+      // Confirms speed_limit behavior is unchanged.
+      {
+        eventId: "synthetic-evt-002",
         expectedStatus: "too_far",
         expectedReasonCode: "outside_max_lookahead",
         expectedReasonKind: "suppressed",
