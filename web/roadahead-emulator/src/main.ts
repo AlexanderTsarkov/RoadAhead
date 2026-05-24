@@ -6,6 +6,7 @@
  * Slice 4.4 / Issue #55: debug accepted / suppressed view
  * Slice 4.5 / Issue #57: synthetic applicability fixture cases
  * Slice 4.6 / Issue #63: sticky operator simulation header
+ * Slice 4.7 / Issue #72: copyable manual evidence snapshot
  *
  * Wires together synthetic fixtures, emulator logic, and a minimal UI.
  *
@@ -231,6 +232,10 @@ function buildApp(): void {
         <!-- populated by renderScenarioInspector() -->
       </section>
 
+      <section class="evidence-snapshot-section" id="evidence-snapshot">
+        <!-- populated by renderEvidenceSnapshot() -->
+      </section>
+
       <section class="debug-section" id="debug-section">
         <!-- populated by render() -->
       </section>
@@ -365,6 +370,7 @@ function render(): void {
   renderThreeCircles(state);
   renderOperatorHeader(state);
   renderScenarioInspector();
+  renderEvidenceSnapshot(state);
   renderDebugPanel(state);
 }
 
@@ -1107,6 +1113,185 @@ function renderScenarioInspector(): void {
       </ul>
     </div>
   `;
+}
+
+// ---------------------------------------------------------------------------
+// Evidence snapshot (Issue #72 / Slice 4.7)
+//
+// Builds a Markdown-formatted copyable snapshot of the current emulator state
+// for pasting into GitHub PR / issue comments as manual QA evidence.
+//
+// Generated entirely from SimulationState — no domain logic is duplicated.
+// Debug filter does NOT affect snapshot contents; all event records are
+// always included regardless of the current filter setting.
+//
+// EMULATOR DEBUG / QA ONLY — NOT Product Canon, not driver-facing output,
+// not legal guidance, not safety-certified behavior.
+// ---------------------------------------------------------------------------
+
+/**
+ * Escape pipe characters so table cells are not broken in GitHub Markdown.
+ * Also removes newlines which would break table rows.
+ */
+function escapeMd(s: string | number | null | undefined): string {
+  if (s == null) return "–";
+  return String(s).replace(/\|/g, "\\|").replace(/\n/g, " ");
+}
+
+/**
+ * Build a GitHub-Markdown-formatted evidence snapshot from the current state.
+ *
+ * Uses getEventSelectionSummary() and selectedScenarioId from module scope.
+ * No domain logic is recalculated; all data comes from SimulationState.
+ *
+ * EMULATOR DEBUG / QA ONLY — NOT Product Canon, not driver-facing, not legal.
+ */
+function buildEvidenceSnapshotMarkdown(state: SimulationState): string {
+  const { acceptedCount, suppressedCount, notProcessedCount } =
+    getEventSelectionSummary(state);
+  const { primary } = state.eventSelection;
+  const refState = state.speedReference.state;
+  const targetSpeed = state.speedReference.target_speed_kmh;
+
+  let modeLine: string;
+  if (selectedScenarioId) {
+    const sc = findScenario(selectedScenarioId);
+    modeLine = sc
+      ? `Scenario ${escapeMd(sc.id)} — ${escapeMd(sc.title)}`
+      : `Scenario ${escapeMd(selectedScenarioId)}`;
+  } else {
+    modeLine = "Manual control (no scenario selected)";
+  }
+
+  const progressPct = Math.round(state.progress * 100);
+  const primaryLine = primary ? escapeMd(primary.event_id) : "none";
+  const targetLine =
+    targetSpeed != null
+      ? `${targetSpeed} km/h (advisory only — not legal)`
+      : "none";
+
+  const tableHeader =
+    "| Event | Type | Status | Reason code | Kind | Eligible | Signed dist m | Cross-track m |";
+  const tableSep =
+    "|---|---|---|---|---|---|---:|---:|";
+
+  const tableRows = state.eventSelection.records.map((r) => {
+    const signedDist =
+      r.distance_m >= 0
+        ? `+${r.distance_m.toFixed(0)}`
+        : `${r.distance_m.toFixed(0)}`;
+    const crossTrack = r.projection_cross_track_m.toFixed(1);
+    const eligible = r.applicabilityReason.is_driver_facing_eligible
+      ? "yes"
+      : "no";
+    return (
+      `| ${escapeMd(r.event_id)}` +
+      ` | ${escapeMd(r.normalized_type)}` +
+      ` | ${escapeMd(r.status)}` +
+      ` | ${escapeMd(r.applicabilityReason.code)}` +
+      ` | ${escapeMd(r.applicabilityReason.kind)}` +
+      ` | ${escapeMd(eligible)}` +
+      ` | ${escapeMd(signedDist)}` +
+      ` | ${escapeMd(crossTrack)} |`
+    );
+  });
+
+  const lines = [
+    `## RoadAhead Emulator Manual Evidence Snapshot`,
+    ``,
+    `- Mode: ${modeLine}`,
+    `- Route progress: ${progressPct}% / ${state.progress.toFixed(4)}`,
+    `- Current speed: ${state.speedKmh} km/h`,
+    `- Primary event: ${primaryLine}`,
+    `- Speed reference: ${escapeMd(refState)}`,
+    `- Target speed: ${targetLine}`,
+    `- Counts: accepted ${acceptedCount} / suppressed ${suppressedCount} / not_processed ${notProcessedCount}`,
+    ``,
+    `### Event records`,
+    tableHeader,
+    tableSep,
+    ...tableRows,
+    ``,
+    `_WIP emulator QA evidence only — not Product Canon, not legal guidance, not safety-certified._`,
+  ];
+
+  return lines.join("\n");
+}
+
+/**
+ * Render the evidence snapshot panel into #evidence-snapshot.
+ *
+ * Called on every render cycle so the snapshot always reflects current state.
+ * Re-attaches the Copy button listener after each innerHTML update.
+ *
+ * Clipboard API is used when available; on failure or absence the textarea
+ * is selected so the user can copy manually.
+ *
+ * EMULATOR DEBUG / QA ONLY — NOT Product Canon, not driver-facing.
+ */
+function renderEvidenceSnapshot(state: SimulationState): void {
+  const section = document.getElementById("evidence-snapshot");
+  if (!section) return;
+
+  const markdown = buildEvidenceSnapshotMarkdown(state);
+
+  section.innerHTML = `
+    <h2>Manual Evidence Snapshot
+      <span class="wip-badge">debug / QA only — not Product Canon</span>
+    </h2>
+    <p class="evidence-snapshot-note">
+      Copyable snapshot of current emulator state for pasting into GitHub PR / issue comments.
+      Generated from SimulationState — no domain logic duplicated.
+      WIP / debug / QA only — not Product Canon, not legal guidance, not safety-certified.
+      Snapshot always includes all event records regardless of the debug filter above.
+    </p>
+    <div class="evidence-snapshot-toolbar">
+      <button id="copy-snapshot-btn" class="copy-snapshot-btn" type="button">Copy snapshot</button>
+      <span id="copy-snapshot-status" class="copy-snapshot-status" aria-live="polite"></span>
+    </div>
+    <textarea
+      id="evidence-snapshot-text"
+      class="evidence-snapshot-textarea"
+      readonly
+      spellcheck="false"
+      aria-label="Markdown evidence snapshot — select all and copy, or use the Copy button"
+    >${escapeHtml(markdown)}</textarea>
+  `;
+
+  const btn = document.getElementById(
+    "copy-snapshot-btn"
+  ) as HTMLButtonElement | null;
+  const statusEl = document.getElementById("copy-snapshot-status");
+  const textarea = document.getElementById(
+    "evidence-snapshot-text"
+  ) as HTMLTextAreaElement | null;
+
+  const showStatus = (msg: string): void => {
+    if (!statusEl) return;
+    statusEl.textContent = msg;
+    setTimeout(() => {
+      if (statusEl) statusEl.textContent = "";
+    }, 2500);
+  };
+
+  btn?.addEventListener("click", () => {
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(markdown).then(() => {
+        showStatus("Copied!");
+      }).catch(() => {
+        textarea?.select();
+        showStatus("Copy failed — select text manually.");
+      });
+    } else {
+      textarea?.select();
+      try {
+        document.execCommand("copy");
+        showStatus("Copied!");
+      } catch {
+        showStatus("Copy unavailable — select text manually.");
+      }
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
