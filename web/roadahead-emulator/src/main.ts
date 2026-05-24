@@ -8,6 +8,7 @@
  * Slice 4.6 / Issue #63: sticky operator simulation header
  * Slice 4.7 / Issue #72: copyable manual evidence snapshot
  * Slice 4.8 / Issue #77: route playback mode (Play / Pause)
+ * Slice 4.9 / Issue #78: upcoming events strip
  *
  * Wires together synthetic fixtures, emulator logic, and a minimal UI.
  *
@@ -262,6 +263,10 @@ function buildApp(): void {
         no account required.
       </section>
 
+      <section class="upcoming-events-section" id="upcoming-events-strip">
+        <!-- populated by renderUpcomingEventsStrip() -->
+      </section>
+
       <section class="scenario-inspector-section" id="scenario-inspector">
         <!-- populated by renderScenarioInspector() -->
       </section>
@@ -508,6 +513,7 @@ function render(): void {
   renderPlaybackStatus();
   renderThreeCircles(state);
   renderOperatorHeader(state);
+  renderUpcomingEventsStrip(state);
   renderScenarioInspector();
   renderEvidenceSnapshot(state);
   renderDebugPanel(state);
@@ -1231,6 +1237,138 @@ function renderDebugPanel(state: SimulationState): void {
 
   // Attach filter button listeners after innerHTML is set.
   attachDebugFilterListeners(section);
+}
+
+// ---------------------------------------------------------------------------
+// Upcoming events strip (Issue #78 / Slice 4.9)
+//
+// WIP emulator QA display — NOT the driver-facing UI.
+// NOT Product Canon. Not navigation. Not routing. Not ETA. Not traffic.
+//
+// Derives display items from existing SimulationState / eventSelection.records
+// only. Does NOT call selectEvents() again. Does NOT recompute projection,
+// direction compatibility, or event selection.
+//
+// Filter: accepted / driver-facing-eligible records with distance_m > 0.
+// Sort: ascending by distance_m (nearest first).
+// Limit: MAX_UPCOMING_STRIP_ITEMS.
+// ---------------------------------------------------------------------------
+
+/** Max items shown in the upcoming events strip. WIP constant — not Canon. */
+const MAX_UPCOMING_STRIP_ITEMS = 5;
+
+/** A single resolved item for the upcoming events strip. Derived UI-only type. */
+interface UpcomingEventItem {
+  event_id: string;
+  normalized_type: string;
+  /** Type-aware advisory label from getEventDisplaySemantics(). UI only. */
+  advisory_label: string;
+  /** Positive signed distance ahead in metres (distance_m from the record). */
+  distance_m: number;
+  /** True if this event is the currently selected primary event. */
+  is_primary: boolean;
+}
+
+/**
+ * Derive upcoming event strip items from existing SimulationState.
+ *
+ * Filter: applicabilityReason.is_driver_facing_eligible === true AND distance_m > 0.
+ * Sort: ascending by distance_m (nearest first).
+ * Limit: MAX_UPCOMING_STRIP_ITEMS.
+ *
+ * Does NOT call selectEvents(). Does NOT recompute projection or direction.
+ * Reuses eventSelection.records from the already-computed state.
+ *
+ * WIP emulator QA display — NOT the driver-facing UI. NOT Product Canon.
+ * Not navigation. Not routing. Not ETA. (Issue #78 / Slice 4.9)
+ */
+function getUpcomingEventItems(state: SimulationState): UpcomingEventItem[] {
+  const primaryId = state.eventSelection.primary?.event_id ?? null;
+  return state.eventSelection.records
+    .filter(
+      (r) => r.applicabilityReason.is_driver_facing_eligible && r.distance_m > 0
+    )
+    .sort((a, b) => a.distance_m - b.distance_m)
+    .slice(0, MAX_UPCOMING_STRIP_ITEMS)
+    .map((r) => ({
+      event_id: r.event_id,
+      normalized_type: r.normalized_type,
+      advisory_label: getEventDisplaySemantics(r.normalized_type).primaryAdvisoryLabel,
+      distance_m: r.distance_m,
+      is_primary: r.event_id === primaryId,
+    }));
+}
+
+/**
+ * Format a distance-ahead value as a compact string.
+ * WIP emulator QA display only — not Product Canon.
+ */
+function formatDistanceAhead(distance_m: number): string {
+  if (distance_m >= 1000) {
+    return `${(distance_m / 1000).toFixed(1)} km`;
+  }
+  return `${Math.round(distance_m)} m`;
+}
+
+/**
+ * Render the upcoming events strip into #upcoming-events-strip.
+ *
+ * Shows accepted/eligible events ahead of the current vehicle position,
+ * derived from existing eventSelection.records. Updates on every render cycle
+ * (manual slider, playback, scenario selection, speed changes) through the
+ * existing render() path.
+ *
+ * WIP emulator QA display — NOT the driver-facing UI. NOT Product Canon.
+ * Not navigation. Not routing. Not ETA. Not traffic.
+ * Derived from existing applicability output only — no new domain logic.
+ * (Issue #78 / Slice 4.9)
+ */
+function renderUpcomingEventsStrip(state: SimulationState): void {
+  const section = document.getElementById("upcoming-events-strip");
+  if (!section) return;
+
+  const items = getUpcomingEventItems(state);
+
+  let bodyHtml: string;
+  if (items.length === 0) {
+    bodyHtml = `
+      <p class="upcoming-empty">
+        No accepted upcoming events in current window
+        <span class="upcoming-empty-note">(no driver-facing eligible events with positive distance)</span>
+      </p>`;
+  } else {
+    const cards = items
+      .map((item) => {
+        const primaryBadge = item.is_primary
+          ? `<span class="upcoming-primary-badge">current primary</span>`
+          : "";
+        // Normalise type to a CSS-safe class suffix (underscores → dashes).
+        const typeSlug = item.normalized_type.replace(/_/g, "-");
+        const primaryClass = item.is_primary ? " upcoming-card-primary" : "";
+        return `<div class="upcoming-card upcoming-type-${escapeHtml(typeSlug)}${primaryClass}">
+          <div class="upcoming-card-top">
+            <code class="upcoming-event-id">${escapeHtml(item.event_id)}</code>
+            ${primaryBadge}
+          </div>
+          <div class="upcoming-advisory">${escapeHtml(item.advisory_label)}</div>
+          <div class="upcoming-distance">${escapeHtml(formatDistanceAhead(item.distance_m))}</div>
+        </div>`;
+      })
+      .join("");
+    bodyHtml = `<div class="upcoming-cards">${cards}</div>`;
+  }
+
+  section.innerHTML = `
+    <h2>Upcoming Events
+      <span class="wip-badge">emulator QA display — not driver-facing UI · not navigation · not Canon</span>
+    </h2>
+    <p class="upcoming-note">
+      Accepted/eligible candidate events ahead of current position.
+      Derived from existing applicability output — no new event selection logic.
+      Not navigation. Not routing. Not ETA. WIP QA display only.
+    </p>
+    ${bodyHtml}
+  `;
 }
 
 // ---------------------------------------------------------------------------
