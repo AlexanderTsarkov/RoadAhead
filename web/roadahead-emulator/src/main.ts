@@ -38,6 +38,16 @@ import type { EventSelectionRecord } from "./emulator/minimalEventSelection.js";
 import { SYNTHETIC_SCENARIOS } from "./emulator/scenarios/syntheticScenarios.js";
 import type { EmulatorScenario } from "./emulator/scenarios/scenarioTypes.js";
 import { initMap, setMapRoute, updateVehicleMarker } from "./mapView.js";
+import {
+  parseRouteRegistry,
+  type RouteRegistry,
+  type RouteRegistryEntry,
+} from "./contracts/routeRegistry.js";
+import {
+  parseRouteEventDataset,
+  validateRouteEventDatasetRouteId,
+  type RouteEventDataset,
+} from "./contracts/routeEventDataset.js";
 
 // ---------------------------------------------------------------------------
 // Mutable simulation inputs (user-controlled)
@@ -167,6 +177,81 @@ let activeRouteSource: ActiveRouteSource = { kind: "synthetic" };
 
 /** Parse error message from the last GeoJSON import attempt, or null. */
 let routeImportError: string | null = null;
+
+// ---------------------------------------------------------------------------
+// Route registry state (Issue #93 / Stage 2)
+//
+// The registry is loaded once from public/routes/route-registry.json and
+// used to populate the Route/Data panel selector. Selecting a route from
+// the registry is the primary load action for both geometry and prepared events.
+//
+// Route is the load unit:
+//   - route geometry is loaded from route_geometry_url;
+//   - prepared event dataset is loaded from prepared_events_url if configured;
+//   - both load together as a single atomic action — the user does not load
+//     route and data separately.
+//
+// WIP — NOT Product Canon. Stage 2 / Issue #93.
+// ---------------------------------------------------------------------------
+
+/** Parsed route registry, or null before it is loaded. */
+let routeRegistry: RouteRegistry | null = null;
+
+/** Error message from the registry load attempt, or null. */
+let routeRegistryLoadError: string | null = null;
+
+/** The registry route id that is currently loaded/active, or null. */
+let activeRegistryRouteId: string | null = null;
+
+// ---------------------------------------------------------------------------
+// Prepared route events state (Issue #93 / Stage 2)
+//
+// Tracks the load state of the prepared route-scoped event dataset for the
+// currently selected registry route.
+//
+// Not loaded on startup — loaded when a registry route is selected.
+// Route loads successfully even when the dataset is missing or invalid.
+// WIP — NOT Product Canon.
+// ---------------------------------------------------------------------------
+
+/** Discriminated union for prepared event dataset load state. */
+type RouteEventsLoadState =
+  | { kind: "not_loaded" }
+  | { kind: "loading" }
+  | { kind: "not_prepared" }
+  | { kind: "loaded"; dataset: RouteEventDataset }
+  | { kind: "error"; message: string };
+
+/** Current prepared event dataset load state. */
+let routeEventsState: RouteEventsLoadState = { kind: "not_loaded" };
+
+// ---------------------------------------------------------------------------
+// Route load sequence guard (Issue #93 / Codex review)
+//
+// Registry route loading is async. Back-to-back loads must not let a slower,
+// older fetch overwrite activeRoute, map state, activeRegistryRouteId, or
+// routeEventsState after a newer route was selected.
+//
+// Monotonic token incremented at the start of every registry load and
+// synthetic reset; async handlers check isRouteLoadCurrent(token) before
+// mutating state.
+//
+// WIP — NOT Product Canon.
+// ---------------------------------------------------------------------------
+
+/** Monotonic route load sequence — incremented to invalidate in-flight loads. */
+let routeLoadSeq = 0;
+
+/** Start a new route load; invalidates any in-flight registry/prepared fetches. */
+function beginRouteLoad(): number {
+  routeLoadSeq += 1;
+  return routeLoadSeq;
+}
+
+/** True when `token` is still the active route load (not superseded). */
+function isRouteLoadCurrent(token: number): boolean {
+  return token === routeLoadSeq;
+}
 
 // ---------------------------------------------------------------------------
 // GeoJSON route import helpers (Issue #79 / Slice 4.10)
@@ -335,9 +420,300 @@ function parseUserGeoJsonRoute(
  *   - the user selects a scenario (scenarios are tied to synthetic route).
  */
 function resetToSyntheticRoute(): void {
+  beginRouteLoad();
   activeRoute = SYNTHETIC_ROUTE;
   activeRouteSource = { kind: "synthetic" };
   routeImportError = null;
+  activeRegistryRouteId = null;
+  routeEventsState = { kind: "not_loaded" };
+}
+
+// ---------------------------------------------------------------------------
+// Route registry loader (Issue #93 / Stage 2)
+//
+// Loads public/routes/route-registry.json once on startup. On success the
+// Route/Data panel in the right-side panel is populated with selectable routes.
+// On failure the panel shows an error — the emulator still functions with the
+// synthetic route and manual file import.
+//
+// WIP — NOT Product Canon. Not navigation. Not routing.
+// ---------------------------------------------------------------------------
+
+/** Path to the route registry asset, relative to Vite public root. */
+const ROUTE_REGISTRY_PATH = "./routes/route-registry.json";
+
+/**
+ * Load the route registry from the bundled static asset.
+ *
+ * Fetches ROUTE_REGISTRY_PATH, parses with parseRouteRegistry(), stores in
+ * routeRegistry, and triggers a render so the Route/Data panel is populated.
+ * On failure: sets routeRegistryLoadError; emulator continues functioning.
+ *
+ * WIP — NOT Product Canon. Stage 2 / Issue #93.
+ */
+function loadRouteRegistry(): void {
+  fetch(ROUTE_REGISTRY_PATH)
+    .then((resp) => {
+      if (!resp.ok) {
+        throw new Error(
+          `Failed to fetch route registry: HTTP ${resp.status}`
+        );
+      }
+      return resp.json() as Promise<unknown>;
+    })
+    .then((parsed) => {
+      routeRegistry = parseRouteRegistry(parsed);
+      routeRegistryLoadError = null;
+      render();
+    })
+    .catch((e: unknown) => {
+      routeRegistryLoadError =
+        e instanceof Error ? e.message : String(e);
+      routeRegistry = null;
+      render();
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Registry-based route loader (Issue #93 / Stage 2 — route is the load unit)
+//
+// loadRouteFromRegistry() is the primary route selection action.
+// It loads route geometry AND attempts to load the prepared event dataset
+// together as a single atomic action — the user does not load them separately.
+//
+// On geometry success:
+//   - activeRoute is updated
+//   - routeProgressPct is reset to 0
+//   - playback is paused
+//   - activeRegistryRouteId is set
+//   - default_playback_multiplier is applied if configured
+//   - prepared events load is attempted immediately (if configured)
+//   - map is synced
+//   - render() is called
+//
+// On geometry failure:
+//   - active route is not changed
+//   - error is shown in Route/Data panel via routeImportError
+//
+// Prepared events load is attempted regardless of geometry success, but
+// geometry must succeed before activeRoute changes.
+//
+// WIP — NOT Product Canon. Not navigation. Not routing. Not driver-facing.
+// ---------------------------------------------------------------------------
+
+/**
+ * Load a route from the registry (geometry + prepared events).
+ *
+ * Route is the load unit: selecting a route loads geometry and prepared events
+ * as a single atomic action. The user does not perform these separately.
+ *
+ * WIP — NOT Product Canon. Stage 2 / Issue #93.
+ */
+function loadRouteFromRegistry(entry: RouteRegistryEntry): void {
+  const loadToken = beginRouteLoad();
+  routeImportError = null;
+  render();
+
+  fetch(entry.route_geometry_url)
+    .then((resp) => {
+      if (!isRouteLoadCurrent(loadToken)) return null;
+      if (!resp.ok) {
+        throw new Error(
+          `Failed to fetch route geometry: HTTP ${resp.status} (${entry.route_geometry_url})`
+        );
+      }
+      return resp.json() as Promise<unknown>;
+    })
+    .then((parsed) => {
+      if (!isRouteLoadCurrent(loadToken) || parsed === null) return;
+      const imported = parseUserGeoJsonRoute(parsed, entry.name);
+      activeRoute = imported;
+      activeRouteSource = { kind: "geojson", filename: entry.name };
+      routeImportError = null;
+      activeRegistryRouteId = entry.id;
+
+      // Apply default playback multiplier if configured.
+      if (
+        entry.default_playback_multiplier != null &&
+        entry.default_playback_multiplier > 0
+      ) {
+        playbackMultiplier = entry.default_playback_multiplier;
+        const sel = document.getElementById(
+          "playback-multiplier-select"
+        ) as HTMLSelectElement | null;
+        if (sel) sel.value = String(playbackMultiplier);
+      }
+
+      // Reset simulation state.
+      pausePlayback();
+      clearSelectedScenario();
+      routeProgressPct = 0;
+      const slider = document.getElementById(
+        "progress-slider"
+      ) as HTMLInputElement | null;
+      if (slider) slider.value = "0";
+
+      syncMapRoute();
+
+      // Attempt to load prepared event dataset.
+      if (entry.prepared_events_url) {
+        routeEventsState = { kind: "loading" };
+        render();
+        loadPreparedEventsForRoute(
+          entry.id,
+          entry.prepared_events_url,
+          loadToken
+        );
+      } else {
+        routeEventsState = { kind: "not_prepared" };
+        render();
+      }
+    })
+    .catch((e: unknown) => {
+      if (!isRouteLoadCurrent(loadToken)) return;
+      routeImportError = e instanceof Error ? e.message : String(e);
+      render();
+    });
+}
+
+/**
+ * True when an OK (2xx) prepared-events response body looks like a missing
+ * file rather than a real dataset. Covers the Vite dev-server SPA HTML
+ * fallback (200 + index.html) and empty responses.
+ *
+ * Only called after confirming resp.ok — non-OK responses are classified
+ * before this check so a 500/403 HTML error page is never marked "not prepared".
+ *
+ * WIP — NOT Product Canon. Stage 2 / Issue #93.
+ */
+function isPreparedEventsOkBodyMissing(
+  resp: Response,
+  bodyText: string
+): boolean {
+  const trimmed = bodyText.trim();
+  if (trimmed.length === 0) return true;
+  const contentType = (resp.headers.get("content-type") ?? "").toLowerCase();
+  if (contentType.includes("text/html")) return true;
+  const head = trimmed.slice(0, 32).toLowerCase();
+  if (head.startsWith("<!doctype") || head.startsWith("<html")) return true;
+  return false;
+}
+
+/**
+ * Mark prepared events as not prepared (missing file — normal Stage 2 state).
+ */
+function setPreparedEventsNotPrepared(
+  reason: string,
+  eventsUrl: string,
+  loadToken: number
+): void {
+  if (!isRouteLoadCurrent(loadToken)) return;
+  console.debug(
+    `[Route/Data] Prepared events not available (${reason}): ${eventsUrl}`
+  );
+  routeEventsState = { kind: "not_prepared" };
+  render();
+}
+
+/**
+ * Load the prepared route-scoped event dataset for a registry route.
+ *
+ * Called by loadRouteFromRegistry() after geometry loads successfully.
+ * Route still functions if the dataset is missing or fails to validate.
+ *
+ * HTTP status classification (evaluated in order):
+ *   1. 404              → not_prepared  (file not deployed yet — normal Stage 2)
+ *   2. non-OK (non-404) → dataset error (server error, auth failure, etc.)
+ *   3. OK + empty/HTML  → not_prepared  (Vite SPA fallback for missing asset)
+ *   4. OK + non-JSON    → dataset error
+ *   5. OK + bad schema  → dataset error
+ *   6. OK + valid       → loaded
+ *
+ * Route geometry remains loaded in all cases.
+ *
+ * WIP — NOT Product Canon. Stage 2 / Issue #93.
+ */
+function loadPreparedEventsForRoute(
+  routeId: string,
+  eventsUrl: string,
+  loadToken: number
+): void {
+  fetch(eventsUrl)
+    .then(async (resp) => {
+      if (!isRouteLoadCurrent(loadToken)) return null;
+
+      // Step 1: 404 → not prepared (before reading body).
+      if (resp.status === 404) {
+        setPreparedEventsNotPrepared("HTTP 404", eventsUrl, loadToken);
+        return null;
+      }
+
+      // Step 2: non-OK (and not 404) → dataset error.
+      if (!resp.ok) {
+        throw new Error(
+          `Prepared events fetch failed: HTTP ${resp.status} (${eventsUrl})`
+        );
+      }
+
+      // Step 3+: read body for OK responses.
+      const bodyText = await resp.text();
+      if (!isRouteLoadCurrent(loadToken)) return null;
+
+      // Step 3: OK but SPA fallback / empty → not prepared.
+      if (isPreparedEventsOkBodyMissing(resp, bodyText)) {
+        setPreparedEventsNotPrepared(
+          "file not found (SPA/empty response)",
+          eventsUrl,
+          loadToken
+        );
+        return null;
+      }
+
+      // Step 4: parse JSON.
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(bodyText) as unknown;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(
+          `[Route/Data] Prepared events dataset is not valid JSON (${eventsUrl}):`,
+          msg
+        );
+        throw new Error(`Prepared events dataset is not valid JSON: ${msg}`);
+      }
+
+      return parsed;
+    })
+    .then((parsed) => {
+      if (!isRouteLoadCurrent(loadToken) || parsed === null) return;
+      if (activeRegistryRouteId !== routeId) return;
+      // Step 5: schema + route_id validation.
+      try {
+        const dataset = parseRouteEventDataset(parsed);
+        validateRouteEventDatasetRouteId(dataset, routeId);
+        if (!isRouteLoadCurrent(loadToken) || activeRegistryRouteId !== routeId) {
+          return;
+        }
+        // Step 6: success.
+        routeEventsState = { kind: "loaded", dataset };
+        render();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(
+          `[Route/Data] Prepared events dataset validation failed (${eventsUrl}):`,
+          msg
+        );
+        throw new Error(`Prepared events dataset validation failed: ${msg}`);
+      }
+    })
+    .catch((e: unknown) => {
+      if (!isRouteLoadCurrent(loadToken) || activeRegistryRouteId !== routeId) {
+        return;
+      }
+      const message = e instanceof Error ? e.message : String(e);
+      routeEventsState = { kind: "error", message };
+      render();
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -380,8 +756,10 @@ const ROSTOV1_ASSET_PATH = "./routes/Rostov1.geojson";
  * WIP — NOT Product Canon. (Issue #87 / Stage 2 known-route emulator)
  */
 function loadRostov1Route(): void {
+  const loadToken = beginRouteLoad();
   fetch(ROSTOV1_ASSET_PATH)
     .then((resp) => {
+      if (!isRouteLoadCurrent(loadToken)) return null;
       if (!resp.ok) {
         throw new Error(
           `Failed to fetch ${ROSTOV1_ASSET_NAME}: HTTP ${resp.status}`
@@ -390,10 +768,13 @@ function loadRostov1Route(): void {
       return resp.json() as Promise<unknown>;
     })
     .then((parsed) => {
+      if (!isRouteLoadCurrent(loadToken) || parsed === null) return;
       const imported = parseUserGeoJsonRoute(parsed, ROSTOV1_ASSET_NAME);
       activeRoute = imported;
       activeRouteSource = { kind: "geojson", filename: ROSTOV1_ASSET_NAME };
       routeImportError = null;
+      activeRegistryRouteId = null;
+      routeEventsState = { kind: "not_loaded" };
       pausePlayback();
       clearSelectedScenario();
       routeProgressPct = 0;
@@ -405,6 +786,7 @@ function loadRostov1Route(): void {
       render();
     })
     .catch((e: unknown) => {
+      if (!isRouteLoadCurrent(loadToken)) return;
       routeImportError = e instanceof Error ? e.message : String(e);
       render();
     });
@@ -482,18 +864,20 @@ function buildApp(): void {
 
   app.innerHTML = `
     <!-- ── Compact simulator top control bar ────────────────────────────── -->
+    <!--
+      Issue #93 / Stage 2: Top bar is reserved for movement/playback/speed controls only.
+      Route selection lives in the right-side Route/Data panel.
+      Scenario selector moved to the debug Scenario Inspector collapsible section.
+    -->
     <div id="sim-topbar" class="sim-topbar" aria-label="Simulator control bar — emulator debug / QA only">
 
-      <!-- Row 1: identity + route status + quick Rostov1 load -->
+      <!-- Row 1: identity + WIP badge only -->
       <div class="sim-topbar-row sim-topbar-title-row">
         <span class="sim-topbar-title">RoadAhead P0 · Emulator</span>
         <span class="sim-topbar-wip-badge">debug / QA only — not driver-facing UI</span>
-        <span id="op-route-info" class="sim-topbar-route-info"></span>
-        <button id="topbar-rostov1-btn" type="button" class="sim-btn sim-btn-green"
-          title="Load Rostov1 owner-provided route — geometry only, not provider data">Load Rostov1</button>
       </div>
 
-      <!-- Row 2: progress, playback, speed, scenario -->
+      <!-- Row 2: progress, playback, speed controls ONLY -->
       <div class="sim-topbar-row sim-topbar-controls-row">
         <div class="sim-topbar-group sim-topbar-progress-group">
           <label for="progress-slider" class="sim-label">Progress</label>
@@ -524,14 +908,6 @@ function buildApp(): void {
             <span class="sim-unit">km/h</span>
           </div>
         </div>
-        <div class="sim-topbar-sep" aria-hidden="true"></div>
-        <div class="sim-topbar-group">
-          <label for="scenario-select" class="sim-label">Scenario</label>
-          <select id="scenario-select" class="sim-scenario-select">
-            <option value="">&#8211;&#8211; none / manual &#8211;&#8211;</option>
-            ${scenarioOptions}
-          </select>
-        </div>
       </div>
 
     </div>
@@ -543,8 +919,12 @@ function buildApp(): void {
       <!-- Map data © OpenStreetMap contributors (ODbL). Attribution kept visible. -->
       <div id="emulator-map" class="emulator-map" aria-label="Route map — emulator spatial evaluation, debug only"></div>
 
-      <!-- Compact side panel: three circles + op summary + upcoming events -->
+      <!-- Compact side panel: Route/Data + three circles + op summary + upcoming events -->
       <div id="sim-panel" class="sim-panel">
+
+        <!-- Route/Data panel — primary route selection (Issue #93 / Stage 2) -->
+        <!-- Route is the load unit: selecting a route loads geometry + prepared events. -->
+        <div id="route-data-panel" class="sim-panel-section sim-panel-route-data-wrap"></div>
 
         <div class="sim-panel-section sim-panel-circles-wrap">
           <div class="three-circles" id="three-circles"></div>
@@ -575,10 +955,19 @@ function buildApp(): void {
         <div id="route-import-section" class="route-import-section"></div>
       </details>
 
+      <!-- Scenario Inspector: includes scenario selector (moved from top bar, Issue #93) -->
       <details class="sim-details">
         <summary class="sim-details-summary">Scenario Inspector
-          <span class="sim-details-badge">debug / QA only</span>
+          <span class="sim-details-badge">debug / QA only · synthetic scenarios · selector moved here</span>
         </summary>
+        <div class="sim-details-scenario-selector-row">
+          <label for="scenario-select" class="sim-label">Scenario:</label>
+          <select id="scenario-select" class="sim-scenario-select">
+            <option value="">&#8211;&#8211; none / manual &#8211;&#8211;</option>
+            ${scenarioOptions}
+          </select>
+          <span class="sim-details-badge">WIP · QA only · not Canon</span>
+        </div>
         <div id="scenario-inspector" class="scenario-inspector-section"></div>
       </details>
 
@@ -642,6 +1031,11 @@ function buildApp(): void {
   // initMap() is a no-op if called again (guard on map instance).
   // Issue #88 / Stage 2 — map is spatial evaluation surface, not navigation.
   initMap("emulator-map", activeRoute);
+
+  // Load the route registry after the app is built and initial render is complete.
+  // Registry populates the Route/Data panel selector. Emulator works without it.
+  // Issue #93 / Stage 2 — registry-based route selection.
+  loadRouteRegistry();
 }
 
 // ---------------------------------------------------------------------------
@@ -800,13 +1194,6 @@ function attachControls(): void {
     .getElementById("playback-btn")
     ?.addEventListener("click", togglePlayback);
 
-  // ── Quick Load Rostov1 button in the top control bar (Issue #91) ─────────
-  // Mirrors the full route import section button in the collapsible debug area.
-  // Calls loadRostov1Route() directly — no separate route import logic needed.
-  document
-    .getElementById("topbar-rostov1-btn")
-    ?.addEventListener("click", loadRostov1Route);
-
   // ── Playback multiplier selector (Issue #91 fixes) ────────────────────────
   // Updates playbackMultiplier immediately; running playback picks up the new
   // value on the next tickPlayback() call without restart.
@@ -905,9 +1292,12 @@ function handleGeoJsonFileInputChange(input: HTMLInputElement): void {
     try {
       const imported = parseUserGeoJsonRoute(parsed, file.name);
       // Success: set active route, reset progress, clear scenario, pause.
+      beginRouteLoad();
       activeRoute = imported;
       activeRouteSource = { kind: "geojson", filename: file.name };
       routeImportError = null;
+      activeRegistryRouteId = null;
+      routeEventsState = { kind: "not_loaded" };
       pausePlayback();
       clearSelectedScenario();
       routeProgressPct = 0;
@@ -1008,7 +1398,7 @@ function render(): void {
   const state = getState();
   updateProgressDisplay();
   renderPlaybackStatus();
-  renderOpRouteInfo();
+  renderRouteDataPanel();
   renderThreeCircles(state);
   renderOperatorHeader(state);
   renderUpcomingEventsStrip(state);
@@ -1826,28 +2216,185 @@ function renderDebugPanel(state: SimulationState): void {
 // NOT Product Canon. Not navigation. Not routing. Not provider data.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Route/Data panel (Issue #93 / Stage 2)
+//
+// Rendered into #route-data-panel in the right-side sim-panel.
+// Provides registry-based route selection (primary route load action).
+// Shows route/geometry/events status after route is selected.
+//
+// Route is the load unit: selecting a route from the registry loads both
+// geometry and prepared events together — the user does not do them separately.
+//
+// EMULATOR OPERATOR / QA UI ONLY — NOT THE DRIVER-FACING UI.
+// NOT Product Canon. Not navigation. Not routing. Not driver-facing.
+// Issue #93 / Stage 2.
+// ---------------------------------------------------------------------------
+
 /**
- * Render the operator header route info span (#op-route-info).
+ * Render the Route/Data panel into #route-data-panel.
  *
- * Updates the active route source label in the sticky header.
- * Called on every render cycle so it stays in sync with active route state.
+ * Shows:
+ *   - Route selector (dropdown of active registry routes + Load button)
+ *   - Route/geometry status (once a route is loaded)
+ *   - Prepared events status (loaded summary, not prepared, or error)
  *
- * EMULATOR QA ONLY — NOT driver-facing. NOT Product Canon.
+ * Re-attaches the Load button listener after each innerHTML update.
+ * Called on every render() cycle.
+ *
+ * EMULATOR OPERATOR / QA UI ONLY — NOT THE DRIVER-FACING UI.
+ * NOT Product Canon. Issue #93 / Stage 2.
  */
-function renderOpRouteInfo(): void {
-  const el = document.getElementById("op-route-info");
-  if (!el) return;
-  const { minLon, maxLon } = getRouteLonSpan(activeRoute);
-  if (activeRouteSource.kind === "synthetic") {
-    el.textContent =
-      `Synthetic E-bound · lon ${minLon.toFixed(3)}° → ${maxLon.toFixed(3)}° · ` +
-      `${SYNTHETIC_PREPARED_EVENTS.length} events · no real GPS`;
+function renderRouteDataPanel(): void {
+  const panel = document.getElementById("route-data-panel");
+  if (!panel) return;
+
+  // Build route selector options from registry.
+  let selectorHtml = "";
+  if (routeRegistryLoadError !== null) {
+    selectorHtml = `
+      <div class="route-data-registry-error">
+        Registry load error: ${escapeHtml(routeRegistryLoadError)}
+      </div>`;
+  } else if (routeRegistry === null) {
+    selectorHtml = `<span class="route-data-loading">Loading route registry…</span>`;
   } else {
-    el.textContent =
-      `GeoJSON import: ${activeRouteSource.filename} · ` +
-      `lon ${minLon.toFixed(3)}° → ${maxLon.toFixed(3)}° · ` +
-      `${activeRoute.coordinates.length} waypoints · synthetic events · no real GPS`;
+    const activeRoutes = routeRegistry.routes.filter(
+      (r) => r.status === "active"
+    );
+    const options = activeRoutes
+      .map(
+        (r) =>
+          `<option value="${escapeHtml(r.id)}"${activeRegistryRouteId === r.id ? " selected" : ""}>${escapeHtml(r.name)}</option>`
+      )
+      .join("");
+    selectorHtml = `
+      <div class="route-data-selector-row">
+        <label for="route-data-select" class="route-data-label">Route</label>
+        <select id="route-data-select" class="route-data-select">
+          <option value="">— select route —</option>
+          ${options}
+        </select>
+        <button id="route-data-load-btn" type="button" class="sim-btn sim-btn-green route-data-load-btn"
+          title="Load selected route — geometry + prepared events · route is the load unit">Load</button>
+      </div>`;
   }
+
+  // Build status section — errors always visible; registry vs synthetic state.
+  let statusHtml = "";
+
+  if (routeImportError !== null) {
+    const staleNote =
+      activeRegistryRouteId !== null || activeRouteSource.kind !== "synthetic"
+        ? `<div class="route-data-import-error-stale">Previous route may still be active on the map.</div>`
+        : "";
+    statusHtml += `
+      <div class="route-data-import-error" role="alert">
+        <strong>Latest load failed:</strong> ${escapeHtml(routeImportError)}
+        ${staleNote}
+      </div>`;
+  }
+
+  if (activeRegistryRouteId !== null && routeRegistry !== null) {
+    const entry = routeRegistry.routes.find(
+      (r) => r.id === activeRegistryRouteId
+    );
+    const routeName = entry?.name ?? activeRegistryRouteId;
+    const waypointCount = activeRoute.coordinates.length;
+
+    let eventsStatusHtml = "";
+    const evState = routeEventsState;
+    if (evState.kind === "not_loaded") {
+      eventsStatusHtml = `<span class="route-data-status-na">Events: —</span>`;
+    } else if (evState.kind === "loading") {
+      eventsStatusHtml = `<span class="route-data-status-loading">Events: loading…</span>`;
+    } else if (evState.kind === "not_prepared") {
+      eventsStatusHtml = `<span class="route-data-status-not-prepared">Events: not prepared</span>`;
+    } else if (evState.kind === "error") {
+      eventsStatusHtml = `<span class="route-data-status-error" title="${escapeHtml(evState.message)}">Events: dataset error ⚠</span>`;
+    } else if (evState.kind === "loaded") {
+      const ds = evState.dataset;
+      const n = ds.summary.selected_events;
+      const buf = ds.corridor.buffer_m;
+      eventsStatusHtml = `
+        <span class="route-data-status-loaded">Events: ${n} prepared</span>
+        <span class="route-data-status-detail">· corridor ${buf} m · OpenSpeedcam/Datakam prepared</span>
+        <span class="route-data-status-bytype">
+          speed_limit ${ds.summary.by_type.speed_limit}
+          · static_camera ${ds.summary.by_type.static_camera}
+          · road_bump ${ds.summary.by_type.road_bump}
+          · unknown ${ds.summary.by_type.unknown}
+        </span>`;
+    }
+
+    statusHtml += `
+      <div class="route-data-status-block">
+        <div class="route-data-status-row">
+          <span class="route-data-status-label">Route:</span>
+          <span class="route-data-status-value">${escapeHtml(routeName)}</span>
+        </div>
+        <div class="route-data-status-row">
+          <span class="route-data-status-label">Geometry:</span>
+          <span class="route-data-status-value route-data-status-loaded">loaded · ${waypointCount} points</span>
+        </div>
+        <div class="route-data-status-row">
+          <span class="route-data-status-label"></span>
+          <span class="route-data-status-value">${eventsStatusHtml}</span>
+        </div>
+      </div>`;
+  } else if (activeRouteSource.kind === "synthetic") {
+    const waypointCount = activeRoute.coordinates.length;
+    statusHtml += `
+      <div class="route-data-status-block">
+        <div class="route-data-status-row">
+          <span class="route-data-status-label">Route:</span>
+          <span class="route-data-status-value">Synthetic fixture (default)</span>
+        </div>
+        <div class="route-data-status-row">
+          <span class="route-data-status-label">Geometry:</span>
+          <span class="route-data-status-value route-data-status-loaded">loaded · ${waypointCount} points</span>
+        </div>
+        <div class="route-data-status-row">
+          <span class="route-data-status-label"></span>
+          <span class="route-data-status-value route-data-status-not-prepared">Events: synthetic applicability fixtures (not route-scoped prepared data)</span>
+        </div>
+      </div>`;
+  }
+
+  panel.innerHTML = `
+    <div class="route-data-panel-inner">
+      <div class="route-data-header">
+        <span class="route-data-title">Route / Data</span>
+        <span class="route-data-wip-badge">WIP · geometry + events · not navigation · not Canon</span>
+      </div>
+      ${selectorHtml}
+      ${statusHtml}
+    </div>
+  `;
+
+  // Attach Load button listener after innerHTML replacement.
+  attachRouteDataPanelListeners(panel);
+}
+
+/**
+ * Attach the Load button listener to freshly rendered route-data-panel controls.
+ *
+ * Must be called after panel.innerHTML is set (nodes are freshly created).
+ * Same pattern as attachRouteImportListeners() / attachDebugFilterListeners().
+ *
+ * Issue #93 / Stage 2.
+ */
+function attachRouteDataPanelListeners(panel: HTMLElement): void {
+  const loadBtn = panel.querySelector<HTMLButtonElement>("#route-data-load-btn");
+  const selectEl = panel.querySelector<HTMLSelectElement>("#route-data-select");
+  loadBtn?.addEventListener("click", () => {
+    if (!routeRegistry || !selectEl) return;
+    const selectedId = selectEl.value;
+    if (!selectedId) return;
+    const entry = routeRegistry.routes.find((r) => r.id === selectedId);
+    if (!entry) return;
+    loadRouteFromRegistry(entry);
+  });
 }
 
 /**

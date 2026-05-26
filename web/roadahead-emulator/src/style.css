@@ -2326,3 +2326,185 @@ code {
 .map-disclaimer a {
   color: #2563eb;
 }
+
+/* ── Route/Data panel (Issue #93 / Stage 2) ─────────────────────────────── */
+/*
+ * Primary route selection UI in the right-side sim-panel.
+ * Route is the load unit: selecting loads geometry + prepared events together.
+ *
+ * EMULATOR OPERATOR / QA UI ONLY — not driver-facing. not Canon.
+ * Issue #93 / Stage 2.
+ */
+
+.sim-panel-route-data-wrap {
+  border-bottom: 1px solid #2d3e5a;
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+
+.route-data-panel-inner {
+  padding: 0.4rem 0.5rem;
+}
+
+.route-data-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.route-data-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #c8d8f0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.route-data-wip-badge {
+  font-size: 0.62rem;
+  color: #888;
+  font-style: italic;
+}
+
+.route-data-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.route-data-label {
+  font-size: 0.75rem;
+  color: #a8b8cc;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.route-data-select {
+  font-size: 0.78rem;
+  background: #1a2a3a;
+  color: #e0eaf8;
+  border: 1px solid #3a5070;
+  border-radius: 4px;
+  padding: 0.22rem 0.4rem;
+  flex: 1;
+  min-width: 100px;
+  max-width: 160px;
+}
+
+.route-data-load-btn {
+  flex-shrink: 0;
+}
+
+.route-data-loading {
+  font-size: 0.75rem;
+  color: #8aa0b8;
+  font-style: italic;
+}
+
+.route-data-registry-error {
+  font-size: 0.72rem;
+  color: #f08080;
+  background: #2a1010;
+  border: 1px solid #5a2020;
+  border-radius: 3px;
+  padding: 0.25rem 0.4rem;
+}
+
+.route-data-import-error {
+  font-size: 0.72rem;
+  color: #f08080;
+  background: #2a1010;
+  border: 1px solid #5a2020;
+  border-radius: 3px;
+  padding: 0.25rem 0.4rem;
+  margin-top: 0.3rem;
+  margin-bottom: 0.35rem;
+}
+
+.route-data-import-error-stale {
+  font-size: 0.68rem;
+  color: #c8a0a0;
+  margin-top: 0.2rem;
+  font-style: italic;
+}
+
+.route-data-status-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.route-data-status-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.route-data-status-label {
+  font-size: 0.7rem;
+  color: #7a90a8;
+  min-width: 56px;
+  flex-shrink: 0;
+}
+
+.route-data-status-value {
+  font-size: 0.75rem;
+  color: #c0d0e8;
+}
+
+.route-data-status-loaded {
+  color: #7ecb88;
+}
+
+.route-data-status-not-prepared {
+  color: #a0a8b0;
+  font-style: italic;
+}
+
+.route-data-status-loading {
+  color: #a0b8d0;
+  font-style: italic;
+}
+
+.route-data-status-error {
+  color: #f08080;
+}
+
+.route-data-status-na {
+  color: #606878;
+  font-style: italic;
+}
+
+.route-data-status-detail {
+  font-size: 0.68rem;
+  color: #7a90a8;
+}
+
+.route-data-status-bytype {
+  font-size: 0.67rem;
+  color: #6a8098;
+  display: block;
+  margin-top: 0.1rem;
+}
+
+/* ── Scenario selector in debug details section (Issue #93) ─────────────── */
+/*
+ * Scenario selector was moved from the top bar to the Scenario Inspector
+ * collapsible details section. Layout mirrors the old topbar group style.
+ *
+ * Issue #93 / Stage 2.
+ */
+
+.sim-details-scenario-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 1rem 0.4rem;
+  background: #141e2c;
+  border-bottom: 1px solid #243448;
+}
