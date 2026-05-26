@@ -35,8 +35,36 @@ npm run prepare:route-events -- \
 The raw file path must exist locally (gitignored). The output file can then be
 committed if explicitly approved.
 
-## Stage 2 / Issue #93
+## Stage 2 / Issue #93 + #95
 
 This directory was created as part of the route registry + prepared event dataset
 baseline (Stage 2 / Issue #93). See the route registry at
 `public/routes/route-registry.json` for configured routes.
+
+Issue #95 centralized the Datakam/OpenSpeedcam TYPE mapping. Prepared datasets
+generated after #95 include a `source_type_label` field on each event, preserving
+the source-level type label (e.g. `dangerous_turn`, `speed_bump`) alongside the
+emulator normalized type.
+
+See `docs/research/datakam-openspeedcam-type-mapping.md` for the canonical TYPE
+mapping, QA observations, and DIRECTION semantics notes. The machine-readable
+mapping is at `data/config/datakam-type-mapping.json`.
+
+## Display and debug rule for source_type_label
+
+Because several source labels collapse into the same normalized emulator category
+(e.g. `speed_bump`, `bad_road`, `dangerous_turn`, `other_danger` all → `road_bump`),
+map markers, popups, legends, and debug tables must not display only the normalized `type`.
+
+**Display order for Datakam/OpenSpeedcam prepared events:**
+
+1. `source_type_label` — primary label (e.g. `dangerous_turn`, `speed_bump`)
+2. `raw_type` — raw integer code, always shown for debugging
+3. normalized `type` — coarse emulator category, shown as context only
+
+Example: `dangerous_turn (raw: 104, norm: road_bump)` — not simply `road_bump`.
+
+This rule applies to future map marker popups, debug tables, and event inspector
+displays. It does not change applicability or suppression logic.
+
+Full rule: `docs/research/datakam-openspeedcam-type-mapping.md` §Display and debug rule.

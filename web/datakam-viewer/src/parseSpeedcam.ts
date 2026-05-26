@@ -1,3 +1,16 @@
+/**
+ * Full 12-code Datakam/OpenSpeedcam TYPE mapping.
+ *
+ * This is the canonical source-label mapping for the QA viewer.
+ * The same mapping (with emulator normalized_type additions) is documented in:
+ *   docs/research/datakam-openspeedcam-type-mapping.md
+ *   data/config/datakam-type-mapping.json  (machine-readable, used by extractor)
+ *   web/roadahead-emulator/src/contracts/openSpeedcamTypeMap.ts (emulator runtime)
+ *
+ * Any revision to this mapping must be reflected in all four locations.
+ *
+ * WIP — not Product Canon.
+ */
 export const TYPE_MEANINGS: Record<number, string> = {
   1: "static_camera",
   2: "traffic_light_camera",

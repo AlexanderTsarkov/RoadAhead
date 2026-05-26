@@ -86,3 +86,13 @@ Findings from inspecting many Datakam candidate points along the Yaroslavl-Mosco
 Raw `speedcam.txt` and any other raw data files are git-ignored and must remain local.
 See `docs/research/datakam-speedcam-format-and-route-qa.md` for format notes.
 See `docs/research/datakam-manual-qa-status-semantics.md` for manual QA status semantics.
+See `docs/research/datakam-openspeedcam-type-mapping.md` for the canonical TYPE code mapping, QA observations, and DIRECTION semantics notes.
+
+## TYPE code mapping
+
+The 12-code TYPE mapping in `src/parseSpeedcam.ts` is the canonical source-label mapping for this viewer. The same mapping (with emulator normalized type additions) lives in:
+- `data/config/datakam-type-mapping.json` — machine-readable canonical source, used by the Stage 2 extractor
+- `web/roadahead-emulator/src/contracts/openSpeedcamTypeMap.ts` — emulator runtime layer
+- `docs/research/datakam-openspeedcam-type-mapping.md` — documentation with QA observations
+
+Any revision to the TYPE mapping must be reflected in all four locations.

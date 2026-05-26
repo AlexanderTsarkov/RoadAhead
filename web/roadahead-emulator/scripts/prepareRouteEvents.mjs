@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * prepareRouteEvents.mjs — Stage 2 / Issue #93
+ * prepareRouteEvents.mjs — Stage 2 / Issue #93 / Issue #95
  *
  * Local script: generates a route-scoped prepared event dataset from a local
  * raw OpenSpeedcam/Datakam CSV file.
@@ -8,7 +8,7 @@
  * USAGE:
  *   npm run prepare:route-events -- \
  *     --route public/routes/Rostov1.geojson \
- *     --raw ../../data/raw/datakam/openspeedcam.csv \
+ *     --raw ../../data/raw/datakam/speedcam.txt \
  *     --route-id rostov1 \
  *     --buffer-m 3000 \
  *     --out public/route-events/Rostov1.events.json
@@ -24,11 +24,11 @@
  *   - No heavyweight GIS dependencies.
  *
  * WIP TYPE MAPPING (not Product Canon):
- *   101 → static_camera
- *   102 → speed_limit
- *   104 → road_bump
- *   All other codes (incl. 1) → unknown
- *   Unknown events are preserved — not silently dropped.
+ *   Full 12-code mapping aligned with the Datakam QA viewer.
+ *   Canonical source: data/config/datakam-type-mapping.json
+ *   Documentation: docs/research/datakam-openspeedcam-type-mapping.md
+ *   Unknown codes → "unknown"; unknown events are preserved, not silently dropped.
+ *   Each event includes source_type_label preserving the source-level type string.
  *
  * NOT Product Canon. Not navigation. Not routing. Not safety-certified.
  * Canon authority: docs/product/areas/event-data/event-data.md
@@ -188,18 +188,68 @@ function nearestPointOnRoute(lat, lon, routeCoords) {
 }
 
 // ---------------------------------------------------------------------------
-// WIP TYPE mapping (mirrors openSpeedcamTypeMap.ts)
-// Not Product Canon. Conservative mapping — unknown codes map to "unknown".
+// WIP TYPE mapping — full 12-code mapping aligned with openSpeedcamTypeMap.ts
+// and web/datakam-viewer/src/parseSpeedcam.ts.
+//
+// Canonical machine-readable source: data/config/datakam-type-mapping.json
+// Documentation: docs/research/datakam-openspeedcam-type-mapping.md
+//
+// Not Product Canon. Unknown codes map to "unknown" (preserved, not dropped).
+// Each event records both normalized type AND source_type_label.
 // ---------------------------------------------------------------------------
 
-/** @param {number} rawType */
+/**
+ * Load and index the canonical TYPE mapping from data/config/datakam-type-mapping.json.
+ *
+ * Returns a Map of rawType → { sourceLabel, normalizedType }.
+ *
+ * The mapping JSON is the single canonical reference; the TypeScript runtime
+ * counterpart is web/roadahead-emulator/src/contracts/openSpeedcamTypeMap.ts.
+ */
+function loadTypeMappingFromJson(scriptDir) {
+  const mappingPath = path.resolve(scriptDir, "../../../data/config/datakam-type-mapping.json");
+  let mappingJson;
+  try {
+    mappingJson = JSON.parse(fs.readFileSync(mappingPath, "utf8"));
+  } catch (e) {
+    console.error(
+      `Error: could not load TYPE mapping from ${mappingPath}\n` +
+        `  ${e.message}\n` +
+        "  Ensure data/config/datakam-type-mapping.json exists in the repo root."
+    );
+    process.exit(1);
+  }
+  const entries = mappingJson.entries;
+  if (!Array.isArray(entries)) {
+    console.error("Error: datakam-type-mapping.json must have an 'entries' array.");
+    process.exit(1);
+  }
+  const map = new Map();
+  for (const entry of entries) {
+    if (typeof entry.raw_type !== "number" || typeof entry.source_label !== "string" || typeof entry.normalized_type !== "string") {
+      console.error(`Error: invalid mapping entry: ${JSON.stringify(entry)}`);
+      process.exit(1);
+    }
+    map.set(entry.raw_type, {
+      sourceLabel: entry.source_label,
+      normalizedType: entry.normalized_type,
+    });
+  }
+  return map;
+}
+
+const TYPE_MAP = loadTypeMappingFromJson(__dirname);
+
+/**
+ * @param {number} rawType
+ * @returns {{ normalizedType: string, sourceLabel: string }}
+ */
 function mapOscType(rawType) {
-  const MAP = {
-    101: "static_camera",
-    102: "speed_limit",
-    104: "road_bump",
-  };
-  return MAP[rawType] ?? "unknown";
+  const entry = TYPE_MAP.get(rawType);
+  if (entry) {
+    return { normalizedType: entry.normalizedType, sourceLabel: entry.sourceLabel };
+  }
+  return { normalizedType: "unknown", sourceLabel: "unknown" };
 }
 
 // ---------------------------------------------------------------------------
@@ -291,7 +341,7 @@ function parseCsvLine(line, lineNumber) {
 // Main
 // ---------------------------------------------------------------------------
 
-console.log("RoadAhead prepareRouteEvents.mjs — Stage 2 / Issue #93");
+console.log("RoadAhead prepareRouteEvents.mjs — Stage 2 / Issue #93 / Issue #95");
 console.log("WIP — not Product Canon. Raw source files not committed.");
 console.log("");
 
@@ -341,6 +391,7 @@ let skippedInvalid = 0;
 let skippedOutsideCorridor = 0;
 
 const byType = { speed_limit: 0, static_camera: 0, road_bump: 0, unknown: 0 };
+const bySourceLabel = {};
 const events = [];
 
 for (let i = 0; i < lines.length; i++) {
@@ -374,13 +425,14 @@ for (let i = 0; i < lines.length; i++) {
     continue;
   }
 
-  // Map type
-  const normalizedType = mapOscType(type);
+  // Map type — full 12-code mapping from data/config/datakam-type-mapping.json
+  const { normalizedType, sourceLabel } = mapOscType(type);
 
   // Advisory speed: use SPEED if > 0, else null
   const speedKmh = speed > 0 ? speed : null;
 
   byType[normalizedType]++;
+  bySourceLabel[sourceLabel] = (bySourceLabel[sourceLabel] ?? 0) + 1;
 
   events.push({
     id: `osc_${idx}`,
@@ -388,6 +440,7 @@ for (let i = 0; i < lines.length; i++) {
     source: "openspeedcam_datakam",
     raw_type: type,
     type: normalizedType,
+    source_type_label: sourceLabel,
     lon,
     lat,
     speed_kmh: speedKmh,
@@ -411,6 +464,8 @@ const dataset = {
     kind: "openspeedcam_datakam_prepared",
     raw_source_committed: false,
     raw_format: "IDX,X,Y,TYPE,SPEED,DIRTYPE,DIRECTION",
+    type_mapping_ref: "data/config/datakam-type-mapping.json",
+    type_mapping_doc: "docs/research/datakam-openspeedcam-type-mapping.md",
   },
   corridor: {
     buffer_m: bufferM,
@@ -421,6 +476,7 @@ const dataset = {
     skipped_invalid: skippedInvalid,
     skipped_outside_corridor: skippedOutsideCorridor,
     by_type: byType,
+    by_source_label: bySourceLabel,
   },
   events,
 };
@@ -444,17 +500,26 @@ console.log(`Raw rows scanned:        ${rawRowsScanned}`);
 console.log(`Selected events:         ${events.length}`);
 console.log(`Skipped (invalid):       ${skippedInvalid}`);
 console.log(`Skipped (outside corr.): ${skippedOutsideCorridor}`);
-console.log(`By type:`);
+console.log(`By normalized type:`);
 console.log(`  speed_limit:           ${byType.speed_limit}`);
 console.log(`  static_camera:         ${byType.static_camera}`);
 console.log(`  road_bump:             ${byType.road_bump}`);
 console.log(`  unknown:               ${byType.unknown}`);
+console.log(`By source label:`);
+const sortedLabels = Object.entries(bySourceLabel).sort((a, b) => b[1] - a[1]);
+for (const [label, count] of sortedLabels) {
+  console.log(`  ${label.padEnd(28)} ${count}`);
+}
 console.log(`Output:                  ${resolvedOutPath}`);
 console.log("────────────────────────────────────────────────────────────────");
 console.log("");
 console.log("WIP TYPE mapping used (not Product Canon):");
-console.log("  101 → static_camera, 102 → speed_limit, 104 → road_bump");
-console.log("  1 and all other codes → unknown (preserved, not dropped)");
+console.log("  Full 12-code mapping from data/config/datakam-type-mapping.json");
+console.log("  Camera types (1-5) → static_camera");
+console.log("  101 → speed_limit");
+console.log("  Hazard types (100, 102-106) → road_bump");
+console.log("  Unknown codes → unknown (preserved, not dropped)");
+console.log("  source_type_label field preserves source-level label per event");
 console.log("");
 console.log("Data policy:");
 console.log("  Raw source file: NOT committed (local only).");
