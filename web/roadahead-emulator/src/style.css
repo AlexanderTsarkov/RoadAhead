@@ -209,6 +209,24 @@ body {
   outline-offset: 1px;
 }
 
+/* Compact multiplier select — narrower than scenario select */
+.sim-multiplier-select {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.25rem;
+  border-radius: 4px;
+  border: 1px solid #3a526a;
+  background: #1b2a3d;
+  color: #a8d8f8;
+  cursor: pointer;
+  width: 60px;
+  flex-shrink: 0;
+}
+
+.sim-multiplier-select:focus {
+  outline: 2px solid #5ba8e5;
+  outline-offset: 1px;
+}
+
 /* ── Sim buttons ─────────────────────────────────────────────────────────── */
 
 .sim-btn {

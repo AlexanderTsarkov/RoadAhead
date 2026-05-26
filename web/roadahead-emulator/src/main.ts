@@ -73,12 +73,37 @@ let playbackAnimFrameId = 0;
 /** DOMHighResTimeStamp of the last animation tick — used to compute delta. */
 let playbackLastTimestamp = 0;
 
+// ---------------------------------------------------------------------------
+// Playback multiplier and route-length-based progression (Issue #91 fixes)
+//
+// Playback now advances route progress using the simulated vehicle speed and
+// an owner-controlled multiplier rather than a fixed % / second constant:
+//
+//   progress_delta_fraction =
+//     (currentSpeedKmh × playbackMultiplier × deltaSeconds / 3600) / activeRouteLengthKm
+//
+// activeRouteLengthKm is computed from active route coordinates via haversine
+// and cached. It is recomputed whenever the active route changes.
+//
+// This is WIP emulator simulation only — NOT navigation, NOT ETA, NOT routing,
+// NOT provider speed, NOT traffic. NOT Product Canon.
+// ---------------------------------------------------------------------------
+
 /**
- * WIP emulator constant: route progress advance rate while playing.
- * 5 % / second → 20 seconds for a full 0→100% traversal.
- * WIP default — NOT Product Canon. Adjust freely for product evaluation.
+ * WIP playback speed multiplier.
+ * Scales simulated vehicle speed to accelerate route traversal.
+ * Presets in UI: 25x, 50x, 100x (default), 150x.
+ * WIP emulator control — NOT Product Canon.
  */
-const PLAYBACK_SPEED_PCT_PER_SEC = 5;
+let playbackMultiplier = 100;
+
+/**
+ * Cached arc-length of the currently active route in kilometres.
+ * Computed via haversine from activeRoute.coordinates.
+ * Updated by updateActiveRouteLength() on route changes and on buildApp().
+ * WIP emulator value — NOT Product Canon.
+ */
+let activeRouteLengthKm = 0;
 
 // ---------------------------------------------------------------------------
 // Debug filter state
@@ -478,6 +503,14 @@ function buildApp(): void {
         <div class="sim-topbar-group sim-topbar-playback-group">
           <button id="playback-btn" type="button" class="sim-btn sim-btn-play">&#9654; Play</button>
           <span id="playback-status" class="sim-playback-status">paused</span>
+          <select id="playback-multiplier-select" class="sim-multiplier-select"
+            title="Playback speed multiplier — scales simulated vehicle speed for faster route traversal. WIP emulator only, not navigation, not ETA.">
+            <option value="25">25&#215;</option>
+            <option value="50">50&#215;</option>
+            <option value="100" selected>100&#215;</option>
+            <option value="150">150&#215;</option>
+          </select>
+          <span class="sim-label" title="Simulation speed multiplier">sim</span>
         </div>
         <div class="sim-topbar-sep" aria-hidden="true"></div>
         <div class="sim-topbar-group">
@@ -599,6 +632,9 @@ function buildApp(): void {
     </div>
   `;
 
+  // Cache the initial route length for route-length-based playback (Issue #91 fixes).
+  updateActiveRouteLength();
+
   attachControls();
   render();
 
@@ -619,20 +655,33 @@ function buildApp(): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Advance progress on each animation frame while playing.
- * Uses delta time to keep advancement rate constant regardless of frame rate.
+ * Advance route progress on each animation frame while playing.
+ *
+ * Uses route-length-based progression (Issue #91 fixes):
+ *   progress_delta_pct =
+ *     (currentSpeedKmh × playbackMultiplier × deltaSeconds / 3600) / routeLengthKm × 100
+ *
+ * Falls back to a minimal 0.1% / s advance if activeRouteLengthKm is zero
+ * (degenerate route) to prevent a divide-by-zero stuck state.
+ *
+ * Delta time keeps advancement physically consistent regardless of frame rate.
+ *
+ * WIP emulator only — NOT navigation, NOT ETA, NOT routing, NOT Product Canon.
  */
 function tickPlayback(timestamp: DOMHighResTimeStamp): void {
   if (!isPlaying) return;
 
   if (playbackLastTimestamp !== 0) {
     const deltaSeconds = (timestamp - playbackLastTimestamp) / 1000;
-    routeProgressPct = Math.min(
-      100,
-      routeProgressPct + PLAYBACK_SPEED_PCT_PER_SEC * deltaSeconds
-    );
 
-    // Sync the progress slider DOM value so it stays in sync with playback.
+    // Route-length-based progression: physical speed × multiplier → % advance.
+    const routeLengthKm = activeRouteLengthKm > 0 ? activeRouteLengthKm : 1;
+    const progressDeltaPct =
+      (currentSpeedKmh * playbackMultiplier * deltaSeconds) / 3600 / routeLengthKm * 100;
+
+    routeProgressPct = Math.min(100, routeProgressPct + progressDeltaPct);
+
+    // Sync the progress slider DOM value (integer snap for slider thumb).
     const slider = document.getElementById(
       "progress-slider"
     ) as HTMLInputElement | null;
@@ -724,7 +773,8 @@ function attachControls(): void {
   speedInputEl?.addEventListener("change", () => {
     const val = parseInt(speedInputEl.value, 10);
     if (!isNaN(val)) {
-      pausePlayback();
+      // Fix 3 (Issue #91): do NOT pause playback on speed change.
+      // Playback continues with the updated currentSpeedKmh.
       clearSelectedScenario();
       currentSpeedKmh = clampSpeed(val);
       speedInputEl.value = String(currentSpeedKmh);
@@ -756,6 +806,20 @@ function attachControls(): void {
   document
     .getElementById("topbar-rostov1-btn")
     ?.addEventListener("click", loadRostov1Route);
+
+  // ── Playback multiplier selector (Issue #91 fixes) ────────────────────────
+  // Updates playbackMultiplier immediately; running playback picks up the new
+  // value on the next tickPlayback() call without restart.
+  // WIP emulator control — NOT navigation, NOT ETA, NOT Product Canon.
+  const multiplierSelectEl = document.getElementById(
+    "playback-multiplier-select"
+  ) as HTMLSelectElement | null;
+  multiplierSelectEl?.addEventListener("change", () => {
+    const val = parseInt(multiplierSelectEl.value, 10);
+    if (!isNaN(val) && val > 0) {
+      playbackMultiplier = val;
+    }
+  });
 
   // ── Scenario selector (Issue #70) ──────────────────────────────────────
   // Selecting a scenario applies routeProgressFraction and speedKmh from
@@ -921,7 +985,9 @@ function clampSpeed(v: number): number {
 }
 
 function adjustSpeed(delta: number): void {
-  pausePlayback();
+  // Fix 3 (Issue #91): do NOT pause playback on speed change.
+  // Playback continues at the new speed immediately (route-length-based delta
+  // uses currentSpeedKmh on every tick, so the change takes effect instantly).
   clearSelectedScenario();
   currentSpeedKmh = clampSpeed(currentSpeedKmh + delta);
   const el = document.getElementById("speed-input") as HTMLInputElement | null;
@@ -959,23 +1025,82 @@ function render(): void {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Route length computation (Issue #91 fixes — route-length-based playback)
+//
+// Haversine arc-length is used to convert physical speed + multiplier into
+// a route-progress delta. This is a WIP emulator approximation — it does not
+// account for road curvature beyond the route waypoints, elevation, or any
+// real-world navigation semantics. NOT Product Canon.
+// ---------------------------------------------------------------------------
+
+/**
+ * Haversine distance in kilometres between two WGS84 coordinate pairs.
+ * WIP emulator utility. NOT navigation. NOT routing. NOT Product Canon.
+ */
+function haversineKm(
+  lat1: number, lon1: number,
+  lat2: number, lon2: number
+): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Compute the total arc-length of a RouteGeometry in kilometres.
+ *
+ * Sums haversine segment distances across all consecutive waypoint pairs.
+ * Returns 0 for routes with fewer than 2 waypoints.
+ *
+ * WIP emulator utility — NOT navigation, NOT routing, NOT Product Canon.
+ */
+function computeRouteLengthKm(route: typeof activeRoute): number {
+  const coords = route.coordinates;
+  if (coords.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < coords.length; i++) {
+    const [lon1, lat1] = coords[i - 1];
+    const [lon2, lat2] = coords[i];
+    total += haversineKm(lat1, lon1, lat2, lon2);
+  }
+  return total;
+}
+
+/**
+ * Cache the arc-length of the current activeRoute in activeRouteLengthKm.
+ * Called after activeRoute is updated and in buildApp() on first load.
+ * WIP emulator — NOT Product Canon.
+ */
+function updateActiveRouteLength(): void {
+  activeRouteLengthKm = computeRouteLengthKm(activeRoute);
+}
+
 /**
  * Update the map route polyline and reset the vehicle marker when the active
  * route changes (GeoJSON import, Rostov1 load, or synthetic reset).
  *
  * Called after activeRoute is updated, before render().
- * Wraps setMapRoute() so the call site in event handlers stays minimal.
+ * Also refreshes the cached activeRouteLengthKm for playback progression.
  *
  * Issue #88 / Stage 2 — geometry display only, not provider truth.
+ * Issue #91 fixes — route length cache update.
  * NOT Product Canon.
  */
 function syncMapRoute(): void {
   setMapRoute(activeRoute);
+  updateActiveRouteLength();
 }
 
 function updateProgressDisplay(): void {
   const el = document.getElementById("progress-display");
-  if (el) el.textContent = `${routeProgressPct}%`;
+  if (el) el.textContent = `${routeProgressPct.toFixed(1)}%`;
 }
 
 // ---------------------------------------------------------------------------
