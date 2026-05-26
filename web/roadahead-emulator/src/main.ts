@@ -37,6 +37,7 @@ import { getRouteLonSpan } from "./emulator/routeProgress.js";
 import type { EventSelectionRecord } from "./emulator/minimalEventSelection.js";
 import { SYNTHETIC_SCENARIOS } from "./emulator/scenarios/syntheticScenarios.js";
 import type { EmulatorScenario } from "./emulator/scenarios/scenarioTypes.js";
+import { initMap, setMapRoute, updateVehicleMarker } from "./mapView.js";
 
 // ---------------------------------------------------------------------------
 // Mutable simulation inputs (user-controlled)
@@ -375,6 +376,7 @@ function loadRostov1Route(): void {
         "progress-slider"
       ) as HTMLInputElement | null;
       if (slider) slider.value = "0";
+      syncMapRoute();
       render();
     })
     .catch((e: unknown) => {
@@ -533,6 +535,18 @@ function buildApp(): void {
         <!-- populated by renderUpcomingEventsStrip() -->
       </section>
 
+      <section class="map-section" id="map-section" aria-label="Route map — emulator spatial evaluation, debug only">
+        <h2>Route Map
+          <span class="wip-badge">web emulator debug / spatial evaluation — not driver-facing · not navigation · not Canon</span>
+        </h2>
+        <p class="map-disclaimer">
+          Map background: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a> (ODbL).
+          Used for web emulator spatial evaluation only. Not provider data. Not routing. Not navigation.
+          Vehicle marker position is projection-derived, per-session — not GPS, not Product Canon.
+        </p>
+        <div id="emulator-map" class="emulator-map" aria-label="Route map"></div>
+      </section>
+
       <section class="route-import-section" id="route-import-section">
         <!-- populated by renderRouteImportSection() -->
       </section>
@@ -577,6 +591,11 @@ function buildApp(): void {
 
   attachControls();
   render();
+
+  // Initialize the Leaflet map after the DOM is built and initial render is done.
+  // initMap() is a no-op if called again (guard on map instance).
+  // Issue #88 / Stage 2 — map is spatial evaluation surface, not navigation.
+  initMap("emulator-map", activeRoute);
 }
 
 // ---------------------------------------------------------------------------
@@ -744,6 +763,7 @@ function attachControls(): void {
     if (!scenario) return;
     // Reset to synthetic route: scenario expectations are tied to synthetic fixture.
     resetToSyntheticRoute();
+    syncMapRoute();
     selectedScenarioId = id;
     routeProgressPct = Math.round(scenario.routeProgressFraction * 100);
     currentSpeedKmh = scenario.speedKmh;
@@ -814,6 +834,7 @@ function handleGeoJsonFileInputChange(input: HTMLInputElement): void {
         "progress-slider"
       ) as HTMLInputElement | null;
       if (slider) slider.value = "0";
+      syncMapRoute();
       render();
     } catch (e) {
       routeImportError = e instanceof Error ? e.message : String(e);
@@ -842,6 +863,7 @@ function handleResetToSyntheticRouteClick(): void {
     "progress-slider"
   ) as HTMLInputElement | null;
   if (slider) slider.value = "0";
+  syncMapRoute();
   render();
 }
 
@@ -911,6 +933,27 @@ function render(): void {
   renderScenarioInspector();
   renderEvidenceSnapshot(state);
   renderDebugPanel(state);
+  // Update the map vehicle marker on every render cycle.
+  // Position is projection-derived per-session — not GPS, not provider data.
+  // Issue #88 / Stage 2 — spatial evaluation surface only, not navigation.
+  updateVehicleMarker(
+    state.vehicleRoutePosition.projected_lat,
+    state.vehicleRoutePosition.projected_lon
+  );
+}
+
+/**
+ * Update the map route polyline and reset the vehicle marker when the active
+ * route changes (GeoJSON import, Rostov1 load, or synthetic reset).
+ *
+ * Called after activeRoute is updated, before render().
+ * Wraps setMapRoute() so the call site in event handlers stays minimal.
+ *
+ * Issue #88 / Stage 2 — geometry display only, not provider truth.
+ * NOT Product Canon.
+ */
+function syncMapRoute(): void {
+  setMapRoute(activeRoute);
 }
 
 function updateProgressDisplay(): void {

@@ -1704,3 +1704,37 @@ code {
   color: #888;
   font-style: italic;
 }
+
+/* ── Map section (Issue #88 / Stage 2 — route map baseline) ─────────────── */
+/* Web emulator spatial evaluation / debug surface only.
+   Not driver-facing UI. Not navigation. Not Product Canon.
+   Map data © OpenStreetMap contributors (ODbL).
+   Attribution must remain visible — do not hide .leaflet-control-attribution. */
+
+.map-section {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+}
+
+.map-disclaimer {
+  font-size: 0.78rem;
+  color: #555;
+  font-style: italic;
+  margin-bottom: 0.6rem;
+  line-height: 1.5;
+}
+
+.map-disclaimer a {
+  color: #2563eb;
+}
+
+.emulator-map {
+  width: 100%;
+  height: 420px;
+  border-radius: 4px;
+  border: 1px solid #c8c8c8;
+  /* Leaflet requires an explicit height to render — do not remove. */
+  z-index: 0;
+}
