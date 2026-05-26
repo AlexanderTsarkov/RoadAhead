@@ -2508,3 +2508,175 @@ code {
   background: #141e2c;
   border-bottom: 1px solid #243448;
 }
+
+/* ── Prepared event marker popup (Issue #97 / Stage 2) ───────────────────── */
+/*
+ * Popup appears when a prepared event CircleMarker is clicked on the map.
+ * source_type_label is shown first per #95 display rule.
+ *
+ * EMULATOR QA POPUP ONLY — NOT THE DRIVER-FACING UI.
+ * Candidate source observations. Not applicability. NOT Product Canon.
+ * Issue #97 / Stage 2.
+ */
+
+.ev-popup-container .leaflet-popup-content-wrapper {
+  background: #0f1924;
+  color: #c8d8e8;
+  border: 1px solid #2c4060;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+  padding: 0;
+}
+
+.ev-popup-container .leaflet-popup-content {
+  margin: 0;
+  line-height: 1.4;
+  font-size: 0.75rem;
+}
+
+.ev-popup-container .leaflet-popup-tip {
+  background: #0f1924;
+}
+
+.ev-popup {
+  padding: 0.5rem 0.6rem 0.4rem;
+  min-width: 200px;
+  max-width: 280px;
+}
+
+.ev-popup-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.ev-popup-source-label {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #a0d8b8;
+}
+
+.ev-popup-wip-badge {
+  font-size: 0.65rem;
+  color: #607080;
+  font-style: italic;
+}
+
+.ev-popup-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+}
+
+.ev-popup-table td {
+  padding: 0.1rem 0.25rem 0.1rem 0;
+  vertical-align: top;
+  color: #b0c8d8;
+  border: none;
+}
+
+.ev-popup-table td:first-child {
+  color: #607880;
+  white-space: nowrap;
+  padding-right: 0.5rem;
+  min-width: 80px;
+}
+
+.ev-popup-table td strong {
+  color: #a0d8b8;
+}
+
+.ev-popup-table td em {
+  color: #8090a0;
+  font-style: italic;
+}
+
+/* ── Prepared event source-label legend and filter (Issue #97 / Stage 2) ─── */
+/*
+ * Rendered inside the Route/Data panel in the right-side sim-panel.
+ * Shows source_type_label counts with per-label visibility toggles.
+ *
+ * Candidate source observations only — not applicability, not driver-facing,
+ * not three-circle control. NOT Product Canon.
+ * Issue #97 / Stage 2.
+ */
+
+.ev-source-legend {
+  margin-top: 0.4rem;
+  border-top: 1px solid #243448;
+  padding-top: 0.35rem;
+}
+
+.ev-source-legend-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.25rem;
+}
+
+.ev-source-legend-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #8ab8d0;
+}
+
+.ev-source-legend-note {
+  font-size: 0.65rem;
+  color: #506070;
+  font-style: italic;
+}
+
+.ev-filter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  margin-bottom: 0.3rem;
+}
+
+.ev-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  padding: 0.05rem 0;
+  font-size: 0.72rem;
+}
+
+.ev-filter-row:hover {
+  opacity: 0.85;
+}
+
+.ev-filter-checkbox {
+  cursor: pointer;
+  flex-shrink: 0;
+  accent-color: #4a90d0;
+  width: 12px;
+  height: 12px;
+}
+
+.ev-filter-label {
+  color: #a8c8d8;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ev-filter-count {
+  color: #607880;
+  font-size: 0.68rem;
+  flex-shrink: 0;
+  min-width: 20px;
+  text-align: right;
+}
+
+.ev-source-legend-bytype {
+  font-size: 0.65rem;
+  color: #506070;
+  padding-top: 0.2rem;
+  border-top: 1px solid #1c2c3c;
+}

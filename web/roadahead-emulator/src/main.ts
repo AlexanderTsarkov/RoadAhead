@@ -37,7 +37,14 @@ import { getRouteLonSpan } from "./emulator/routeProgress.js";
 import type { EventSelectionRecord } from "./emulator/minimalEventSelection.js";
 import { SYNTHETIC_SCENARIOS } from "./emulator/scenarios/syntheticScenarios.js";
 import type { EmulatorScenario } from "./emulator/scenarios/scenarioTypes.js";
-import { initMap, setMapRoute, updateVehicleMarker } from "./mapView.js";
+import {
+  initMap,
+  setMapRoute,
+  updateVehicleMarker,
+  setEventMarkers,
+  clearEventMarkers,
+  updateEventMarkersVisibility,
+} from "./mapView.js";
 import {
   parseRouteRegistry,
   type RouteRegistry,
@@ -254,6 +261,61 @@ function isRouteLoadCurrent(token: number): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Prepared event marker filter state (Issue #97 / Stage 2)
+//
+// Tracks which source_type_label values are currently visible on the map.
+// All labels are visible by default; unchecking a label hides its markers
+// without reloading the dataset.
+//
+// Reset to "all visible" whenever the prepared event dataset changes
+// (route change, reset to synthetic, new dataset loaded).
+//
+// Filter affects map marker visibility only — it does NOT change event
+// selection, applicability logic, or scenario sweep behavior.
+//
+// WIP — NOT Product Canon. Not driver-facing.
+// ---------------------------------------------------------------------------
+
+/**
+ * Set of source_type_label values that are currently visible on the map.
+ * Populated from the loaded dataset; empty set = all hidden (no markers).
+ * When null, the panel should not show filter controls.
+ *
+ * All labels are visible by default when a dataset is loaded.
+ * WIP — NOT Product Canon. Issue #97 / Stage 2.
+ */
+let preparedEventVisibleLabels: Set<string> = new Set();
+
+/**
+ * Extract all distinct source_type_label values from the loaded dataset,
+ * returning them in insertion order (as they appear across the events array).
+ *
+ * Returns an empty array if no dataset is loaded.
+ * WIP — NOT Product Canon. Issue #97 / Stage 2.
+ */
+function getLoadedEventSourceLabels(): string[] {
+  if (routeEventsState.kind !== "loaded") return [];
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const ev of routeEventsState.dataset.events) {
+    if (!seen.has(ev.source_type_label)) {
+      seen.add(ev.source_type_label);
+      labels.push(ev.source_type_label);
+    }
+  }
+  return labels;
+}
+
+/**
+ * Reset the prepared event filter to show all source labels in the current dataset.
+ * Called when a new dataset is loaded or when the route / dataset is cleared.
+ * WIP — NOT Product Canon. Issue #97 / Stage 2.
+ */
+function resetPreparedEventFilter(): void {
+  preparedEventVisibleLabels = new Set(getLoadedEventSourceLabels());
+}
+
+// ---------------------------------------------------------------------------
 // GeoJSON route import helpers (Issue #79 / Slice 4.10)
 //
 // parseUserGeoJsonRoute: accepts raw parsed JSON from a user-loaded local file.
@@ -426,6 +488,9 @@ function resetToSyntheticRoute(): void {
   routeImportError = null;
   activeRegistryRouteId = null;
   routeEventsState = { kind: "not_loaded" };
+  // Clear prepared event markers and reset filter (Issue #97 / Stage 2).
+  preparedEventVisibleLabels = new Set();
+  clearEventMarkers();
 }
 
 // ---------------------------------------------------------------------------
@@ -512,6 +577,9 @@ function loadRouteRegistry(): void {
 function loadRouteFromRegistry(entry: RouteRegistryEntry): void {
   const loadToken = beginRouteLoad();
   routeImportError = null;
+  // Clear stale event markers immediately on route change (Issue #97 / Stage 2).
+  preparedEventVisibleLabels = new Set();
+  clearEventMarkers();
   render();
 
   fetch(entry.route_geometry_url)
@@ -694,8 +762,14 @@ function loadPreparedEventsForRoute(
         if (!isRouteLoadCurrent(loadToken) || activeRegistryRouteId !== routeId) {
           return;
         }
-        // Step 6: success.
+        // Step 6: success — update state, reset filter, render markers.
         routeEventsState = { kind: "loaded", dataset };
+        // Reset filter to show all source labels for the new dataset (Issue #97).
+        resetPreparedEventFilter();
+        // Render prepared event markers on the map (Issue #97 / Stage 2).
+        // Markers are candidate source observations — not applicability decisions,
+        // not driver-facing eligibility, not three-circle control.
+        setEventMarkers(dataset.events, preparedEventVisibleLabels);
         render();
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -775,6 +849,9 @@ function loadRostov1Route(): void {
       routeImportError = null;
       activeRegistryRouteId = null;
       routeEventsState = { kind: "not_loaded" };
+      // Clear stale event markers on route change (Issue #97 / Stage 2).
+      preparedEventVisibleLabels = new Set();
+      clearEventMarkers();
       pausePlayback();
       clearSelectedScenario();
       routeProgressPct = 0;
@@ -1298,6 +1375,9 @@ function handleGeoJsonFileInputChange(input: HTMLInputElement): void {
       routeImportError = null;
       activeRegistryRouteId = null;
       routeEventsState = { kind: "not_loaded" };
+      // Clear stale event markers on route change (Issue #97 / Stage 2).
+      preparedEventVisibleLabels = new Set();
+      clearEventMarkers();
       pausePlayback();
       clearSelectedScenario();
       routeProgressPct = 0;
@@ -2303,6 +2383,7 @@ function renderRouteDataPanel(): void {
     const waypointCount = activeRoute.coordinates.length;
 
     let eventsStatusHtml = "";
+    let eventsDetailHtml = "";
     const evState = routeEventsState;
     if (evState.kind === "not_loaded") {
       eventsStatusHtml = `<span class="route-data-status-na">Events: —</span>`;
@@ -2316,15 +2397,45 @@ function renderRouteDataPanel(): void {
       const ds = evState.dataset;
       const n = ds.summary.selected_events;
       const buf = ds.corridor.buffer_m;
-      eventsStatusHtml = `
-        <span class="route-data-status-loaded">Events: ${n} prepared</span>
-        <span class="route-data-status-detail">· corridor ${buf} m · OpenSpeedcam/Datakam prepared</span>
-        <span class="route-data-status-bytype">
-          speed_limit ${ds.summary.by_type.speed_limit}
-          · static_camera ${ds.summary.by_type.static_camera}
-          · road_bump ${ds.summary.by_type.road_bump}
-          · unknown ${ds.summary.by_type.unknown}
-        </span>`;
+      eventsStatusHtml = `<span class="route-data-status-loaded">Events: ${n} prepared · corridor ${buf} m</span>`;
+
+      // Build source-label counts with checkboxes (Issue #97 / Stage 2).
+      // Counts are by source_type_label (primary) — coarse by_type is shown separately.
+      const labelCounts: Record<string, number> = {};
+      for (const ev of ds.events) {
+        labelCounts[ev.source_type_label] =
+          (labelCounts[ev.source_type_label] ?? 0) + 1;
+      }
+      const labelRows = Object.entries(labelCounts)
+        .sort((a, b) => b[1] - a[1])
+        .map(([lbl, cnt]) => {
+          const checked = preparedEventVisibleLabels.has(lbl) ? " checked" : "";
+          const escapedLbl = escapeHtml(lbl);
+          return `
+            <label class="ev-filter-row">
+              <input type="checkbox" class="ev-filter-checkbox" data-label="${escapedLbl}"${checked}>
+              <span class="ev-filter-label">${escapedLbl}</span>
+              <span class="ev-filter-count">${cnt}</span>
+            </label>`;
+        })
+        .join("");
+
+      eventsDetailHtml = `
+        <div class="ev-source-legend">
+          <div class="ev-source-legend-header">
+            <span class="ev-source-legend-title">Source labels · candidate observations</span>
+            <span class="ev-source-legend-note">not applicability · not driver-facing</span>
+          </div>
+          <div class="ev-filter-list" id="ev-filter-list">
+            ${labelRows}
+          </div>
+          <div class="ev-source-legend-bytype">
+            norm: speed_limit ${ds.summary.by_type.speed_limit}
+            · static_camera ${ds.summary.by_type.static_camera}
+            · road_bump ${ds.summary.by_type.road_bump}
+            · unknown ${ds.summary.by_type.unknown}
+          </div>
+        </div>`;
     }
 
     statusHtml += `
@@ -2341,7 +2452,8 @@ function renderRouteDataPanel(): void {
           <span class="route-data-status-label"></span>
           <span class="route-data-status-value">${eventsStatusHtml}</span>
         </div>
-      </div>`;
+      </div>
+      ${eventsDetailHtml}`;
   } else if (activeRouteSource.kind === "synthetic") {
     const waypointCount = activeRoute.coordinates.length;
     statusHtml += `
@@ -2377,12 +2489,18 @@ function renderRouteDataPanel(): void {
 }
 
 /**
- * Attach the Load button listener to freshly rendered route-data-panel controls.
+ * Attach the Load button listener and per-label filter checkboxes to
+ * freshly rendered route-data-panel controls.
  *
  * Must be called after panel.innerHTML is set (nodes are freshly created).
  * Same pattern as attachRouteImportListeners() / attachDebugFilterListeners().
  *
- * Issue #93 / Stage 2.
+ * Filter checkboxes (Issue #97 / Stage 2):
+ *   Each checkbox carries a data-label attribute matching a source_type_label.
+ *   Toggling a checkbox updates preparedEventVisibleLabels and re-renders
+ *   event markers without reloading the route or dataset.
+ *
+ * Issue #93 / Stage 2. Issue #97 / Stage 2.
  */
 function attachRouteDataPanelListeners(panel: HTMLElement): void {
   const loadBtn = panel.querySelector<HTMLButtonElement>("#route-data-load-btn");
@@ -2394,6 +2512,37 @@ function attachRouteDataPanelListeners(panel: HTMLElement): void {
     const entry = routeRegistry.routes.find((r) => r.id === selectedId);
     if (!entry) return;
     loadRouteFromRegistry(entry);
+  });
+
+  // Wire per-label filter checkboxes (Issue #97 / Stage 2).
+  // Each change updates preparedEventVisibleLabels and re-renders markers.
+  // Does not reload the route or dataset — filter is view-only.
+  const filterList = panel.querySelector<HTMLElement>("#ev-filter-list");
+  filterList?.addEventListener("change", (evt) => {
+    const target = evt.target;
+    if (
+      !(target instanceof HTMLInputElement) ||
+      target.type !== "checkbox" ||
+      !target.dataset["label"]
+    )
+      return;
+
+    const label = target.dataset["label"];
+    if (target.checked) {
+      preparedEventVisibleLabels.add(label);
+    } else {
+      preparedEventVisibleLabels.delete(label);
+    }
+
+    // Re-render markers with updated visibility (no route/dataset reload).
+    if (routeEventsState.kind === "loaded") {
+      updateEventMarkersVisibility(
+        routeEventsState.dataset.events,
+        preparedEventVisibleLabels
+      );
+    }
+    // Do NOT call render() here — checkboxes are already in the DOM and
+    // re-rendering would recreate the panel and lose checkbox focus.
   });
 }
 
