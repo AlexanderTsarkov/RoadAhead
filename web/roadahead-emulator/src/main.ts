@@ -226,6 +226,34 @@ type RouteEventsLoadState =
 let routeEventsState: RouteEventsLoadState = { kind: "not_loaded" };
 
 // ---------------------------------------------------------------------------
+// Route load sequence guard (Issue #93 / Codex review)
+//
+// Registry route loading is async. Back-to-back loads must not let a slower,
+// older fetch overwrite activeRoute, map state, activeRegistryRouteId, or
+// routeEventsState after a newer route was selected.
+//
+// Monotonic token incremented at the start of every registry load and
+// synthetic reset; async handlers check isRouteLoadCurrent(token) before
+// mutating state.
+//
+// WIP — NOT Product Canon.
+// ---------------------------------------------------------------------------
+
+/** Monotonic route load sequence — incremented to invalidate in-flight loads. */
+let routeLoadSeq = 0;
+
+/** Start a new route load; invalidates any in-flight registry/prepared fetches. */
+function beginRouteLoad(): number {
+  routeLoadSeq += 1;
+  return routeLoadSeq;
+}
+
+/** True when `token` is still the active route load (not superseded). */
+function isRouteLoadCurrent(token: number): boolean {
+  return token === routeLoadSeq;
+}
+
+// ---------------------------------------------------------------------------
 // GeoJSON route import helpers (Issue #79 / Slice 4.10)
 //
 // parseUserGeoJsonRoute: accepts raw parsed JSON from a user-loaded local file.
@@ -392,9 +420,12 @@ function parseUserGeoJsonRoute(
  *   - the user selects a scenario (scenarios are tied to synthetic route).
  */
 function resetToSyntheticRoute(): void {
+  beginRouteLoad();
   activeRoute = SYNTHETIC_ROUTE;
   activeRouteSource = { kind: "synthetic" };
   routeImportError = null;
+  activeRegistryRouteId = null;
+  routeEventsState = { kind: "not_loaded" };
 }
 
 // ---------------------------------------------------------------------------
@@ -479,13 +510,13 @@ function loadRouteRegistry(): void {
  * WIP — NOT Product Canon. Stage 2 / Issue #93.
  */
 function loadRouteFromRegistry(entry: RouteRegistryEntry): void {
-  // Indicate loading in progress for the Route/Data panel.
-  routeEventsState = { kind: "not_loaded" };
+  const loadToken = beginRouteLoad();
   routeImportError = null;
   render();
 
   fetch(entry.route_geometry_url)
     .then((resp) => {
+      if (!isRouteLoadCurrent(loadToken)) return null;
       if (!resp.ok) {
         throw new Error(
           `Failed to fetch route geometry: HTTP ${resp.status} (${entry.route_geometry_url})`
@@ -494,6 +525,7 @@ function loadRouteFromRegistry(entry: RouteRegistryEntry): void {
       return resp.json() as Promise<unknown>;
     })
     .then((parsed) => {
+      if (!isRouteLoadCurrent(loadToken) || parsed === null) return;
       const imported = parseUserGeoJsonRoute(parsed, entry.name);
       activeRoute = imported;
       activeRouteSource = { kind: "geojson", filename: entry.name };
@@ -527,13 +559,18 @@ function loadRouteFromRegistry(entry: RouteRegistryEntry): void {
       if (entry.prepared_events_url) {
         routeEventsState = { kind: "loading" };
         render();
-        loadPreparedEventsForRoute(entry.id, entry.prepared_events_url);
+        loadPreparedEventsForRoute(
+          entry.id,
+          entry.prepared_events_url,
+          loadToken
+        );
       } else {
         routeEventsState = { kind: "not_prepared" };
         render();
       }
     })
     .catch((e: unknown) => {
+      if (!isRouteLoadCurrent(loadToken)) return;
       routeImportError = e instanceof Error ? e.message : String(e);
       render();
     });
@@ -564,7 +601,12 @@ function isPreparedEventsDatasetMissing(
 /**
  * Mark prepared events as not prepared (missing file — normal Stage 2 state).
  */
-function setPreparedEventsNotPrepared(reason: string, eventsUrl: string): void {
+function setPreparedEventsNotPrepared(
+  reason: string,
+  eventsUrl: string,
+  loadToken: number
+): void {
+  if (!isRouteLoadCurrent(loadToken)) return;
   console.debug(
     `[Route/Data] Prepared events not available (${reason}): ${eventsUrl}`
   );
@@ -589,16 +631,19 @@ function setPreparedEventsNotPrepared(reason: string, eventsUrl: string): void {
  */
 function loadPreparedEventsForRoute(
   routeId: string,
-  eventsUrl: string
+  eventsUrl: string,
+  loadToken: number
 ): void {
   fetch(eventsUrl)
     .then(async (resp) => {
+      if (!isRouteLoadCurrent(loadToken)) return null;
       const bodyText = await resp.text();
+      if (!isRouteLoadCurrent(loadToken)) return null;
 
       if (isPreparedEventsDatasetMissing(resp, bodyText)) {
         const reason =
           resp.status === 404 ? "HTTP 404" : "file not found or empty response";
-        setPreparedEventsNotPrepared(reason, eventsUrl);
+        setPreparedEventsNotPrepared(reason, eventsUrl, loadToken);
         return null;
       }
 
@@ -623,10 +668,14 @@ function loadPreparedEventsForRoute(
       return parsed;
     })
     .then((parsed) => {
-      if (parsed === null) return;
+      if (!isRouteLoadCurrent(loadToken) || parsed === null) return;
+      if (activeRegistryRouteId !== routeId) return;
       try {
         const dataset = parseRouteEventDataset(parsed);
         validateRouteEventDatasetRouteId(dataset, routeId);
+        if (!isRouteLoadCurrent(loadToken) || activeRegistryRouteId !== routeId) {
+          return;
+        }
         routeEventsState = { kind: "loaded", dataset };
         render();
       } catch (e) {
@@ -639,7 +688,9 @@ function loadPreparedEventsForRoute(
       }
     })
     .catch((e: unknown) => {
-      // Only genuine parse/validation/fetch failures reach here — not missing files.
+      if (!isRouteLoadCurrent(loadToken) || activeRegistryRouteId !== routeId) {
+        return;
+      }
       const message = e instanceof Error ? e.message : String(e);
       routeEventsState = { kind: "error", message };
       render();
@@ -686,8 +737,10 @@ const ROSTOV1_ASSET_PATH = "./routes/Rostov1.geojson";
  * WIP — NOT Product Canon. (Issue #87 / Stage 2 known-route emulator)
  */
 function loadRostov1Route(): void {
+  const loadToken = beginRouteLoad();
   fetch(ROSTOV1_ASSET_PATH)
     .then((resp) => {
+      if (!isRouteLoadCurrent(loadToken)) return null;
       if (!resp.ok) {
         throw new Error(
           `Failed to fetch ${ROSTOV1_ASSET_NAME}: HTTP ${resp.status}`
@@ -696,10 +749,13 @@ function loadRostov1Route(): void {
       return resp.json() as Promise<unknown>;
     })
     .then((parsed) => {
+      if (!isRouteLoadCurrent(loadToken) || parsed === null) return;
       const imported = parseUserGeoJsonRoute(parsed, ROSTOV1_ASSET_NAME);
       activeRoute = imported;
       activeRouteSource = { kind: "geojson", filename: ROSTOV1_ASSET_NAME };
       routeImportError = null;
+      activeRegistryRouteId = null;
+      routeEventsState = { kind: "not_loaded" };
       pausePlayback();
       clearSelectedScenario();
       routeProgressPct = 0;
@@ -711,6 +767,7 @@ function loadRostov1Route(): void {
       render();
     })
     .catch((e: unknown) => {
+      if (!isRouteLoadCurrent(loadToken)) return;
       routeImportError = e instanceof Error ? e.message : String(e);
       render();
     });
@@ -1216,9 +1273,12 @@ function handleGeoJsonFileInputChange(input: HTMLInputElement): void {
     try {
       const imported = parseUserGeoJsonRoute(parsed, file.name);
       // Success: set active route, reset progress, clear scenario, pause.
+      beginRouteLoad();
       activeRoute = imported;
       activeRouteSource = { kind: "geojson", filename: file.name };
       routeImportError = null;
+      activeRegistryRouteId = null;
+      routeEventsState = { kind: "not_loaded" };
       pausePlayback();
       clearSelectedScenario();
       routeProgressPct = 0;
@@ -2201,8 +2261,21 @@ function renderRouteDataPanel(): void {
       </div>`;
   }
 
-  // Build status section (shown after a route is loaded).
+  // Build status section — errors always visible; registry vs synthetic state.
   let statusHtml = "";
+
+  if (routeImportError !== null) {
+    const staleNote =
+      activeRegistryRouteId !== null || activeRouteSource.kind !== "synthetic"
+        ? `<div class="route-data-import-error-stale">Previous route may still be active on the map.</div>`
+        : "";
+    statusHtml += `
+      <div class="route-data-import-error" role="alert">
+        <strong>Latest load failed:</strong> ${escapeHtml(routeImportError)}
+        ${staleNote}
+      </div>`;
+  }
+
   if (activeRegistryRouteId !== null && routeRegistry !== null) {
     const entry = routeRegistry.routes.find(
       (r) => r.id === activeRegistryRouteId
@@ -2235,7 +2308,7 @@ function renderRouteDataPanel(): void {
         </span>`;
     }
 
-    statusHtml = `
+    statusHtml += `
       <div class="route-data-status-block">
         <div class="route-data-status-row">
           <span class="route-data-status-label">Route:</span>
@@ -2250,10 +2323,22 @@ function renderRouteDataPanel(): void {
           <span class="route-data-status-value">${eventsStatusHtml}</span>
         </div>
       </div>`;
-  } else if (routeImportError !== null) {
-    statusHtml = `
-      <div class="route-data-import-error">
-        Load error: ${escapeHtml(routeImportError)}
+  } else if (activeRouteSource.kind === "synthetic") {
+    const waypointCount = activeRoute.coordinates.length;
+    statusHtml += `
+      <div class="route-data-status-block">
+        <div class="route-data-status-row">
+          <span class="route-data-status-label">Route:</span>
+          <span class="route-data-status-value">Synthetic fixture (default)</span>
+        </div>
+        <div class="route-data-status-row">
+          <span class="route-data-status-label">Geometry:</span>
+          <span class="route-data-status-value route-data-status-loaded">loaded · ${waypointCount} points</span>
+        </div>
+        <div class="route-data-status-row">
+          <span class="route-data-status-label"></span>
+          <span class="route-data-status-value route-data-status-not-prepared">Events: synthetic applicability fixtures (not route-scoped prepared data)</span>
+        </div>
       </div>`;
   }
 

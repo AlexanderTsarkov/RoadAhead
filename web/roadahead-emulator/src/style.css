@@ -2421,6 +2421,14 @@ code {
   border-radius: 3px;
   padding: 0.25rem 0.4rem;
   margin-top: 0.3rem;
+  margin-bottom: 0.35rem;
+}
+
+.route-data-import-error-stale {
+  font-size: 0.68rem;
+  color: #c8a0a0;
+  margin-top: 0.2rem;
+  font-style: italic;
 }
 
 .route-data-status-block {

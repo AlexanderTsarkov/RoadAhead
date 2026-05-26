@@ -69,7 +69,7 @@ const cliArgs = parseArgs(process.argv.slice(2));
 const routeGeoJsonPath = cliArgs.get("route");
 const rawCsvPath = cliArgs.get("raw");
 const routeId = cliArgs.get("route-id");
-const bufferM = parseFloat(cliArgs.get("buffer-m") ?? "3000");
+const bufferMRaw = cliArgs.get("buffer-m");
 const outPath = cliArgs.get("out");
 
 if (!routeGeoJsonPath || !rawCsvPath || !routeId || !outPath) {
@@ -83,6 +83,18 @@ if (!routeGeoJsonPath || !rawCsvPath || !routeId || !outPath) {
       "  --out public/route-events/Rostov1.events.json"
   );
   process.exit(1);
+}
+
+/** Corridor buffer in metres — default 3000 when --buffer-m is omitted. */
+let bufferM = 3000;
+if (bufferMRaw !== undefined) {
+  bufferM = parseFloat(String(bufferMRaw));
+  if (!Number.isFinite(bufferM) || bufferM <= 0) {
+    console.error(
+      `Error: --buffer-m must be a finite number greater than 0, got "${String(bufferMRaw)}"`
+    );
+    process.exit(1);
+  }
 }
 
 // ---------------------------------------------------------------------------
