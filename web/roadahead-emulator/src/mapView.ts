@@ -20,27 +20,6 @@ import "leaflet/dist/leaflet.css";
 import type { RouteGeometry } from "./contracts/routeGeometry.js";
 
 // ---------------------------------------------------------------------------
-// Leaflet default icon path fix for Vite bundling.
-//
-// Leaflet's default marker icons reference image assets via a relative URL
-// that does not resolve correctly when bundled by Vite. The fix below
-// overrides the icon URLs to use the CDN copies served by unpkg.
-// This keeps the emulator dependency-light (no extra bundler plugin needed).
-//
-// Marker icon is used only for the vehicle position indicator.
-// EMULATOR DEBUG / QA ONLY — not driver-facing.
-// ---------------------------------------------------------------------------
-delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)[
-  "_getIconUrl"
-];
-L.Icon.Default.mergeOptions({
-  iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  iconRetinaUrl:
-    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-});
-
-// ---------------------------------------------------------------------------
 // Mutable Leaflet instances
 // ---------------------------------------------------------------------------
 
@@ -50,8 +29,13 @@ let map: L.Map | null = null;
 /** The active route polyline layer. Null until the first route is set. */
 let routePolyline: L.Polyline | null = null;
 
-/** The vehicle position marker. Null until the first position is set. */
-let vehicleMarker: L.Marker | null = null;
+/**
+ * The vehicle position marker — a vector CircleMarker.
+ * No external image assets are loaded; the marker is drawn by Leaflet's
+ * SVG/Canvas renderer. OSM tiles remain the only external map runtime resource.
+ * Null until the first route is set.
+ */
+let vehicleMarker: L.CircleMarker | null = null;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -136,15 +120,18 @@ export function setMapRoute(route: RouteGeometry): void {
   }
 
   // Move the vehicle marker to the start of the new route.
+  // Uses a vector CircleMarker — no external icon assets required.
   if (latLngs.length > 0) {
     const start = latLngs[0];
     if (vehicleMarker) {
       vehicleMarker.setLatLng(start);
     } else {
-      vehicleMarker = L.marker(start, {
-        title: "Simulated vehicle position — emulator debug only",
-        alt: "Vehicle",
-        zIndexOffset: 1000,
+      vehicleMarker = L.circleMarker(start, {
+        radius: 9,
+        color: "#fff",
+        weight: 2,
+        fillColor: "#e63600",
+        fillOpacity: 1,
       }).addTo(map);
     }
   }
