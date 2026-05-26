@@ -1,6 +1,7 @@
 /**
  * RoadAhead Phase 0 — Web Route Emulator
  * Issue #88 / Stage 2: Real map baseline — OSM background, route line, vehicle marker.
+ * Issue #97 / Stage 2: Prepared event markers — source-type-aware display.
  *
  * This module provides a Leaflet/OSM map surface for spatial evaluation of the
  * known route and vehicle position. It is a web-only debug / QA visualization
@@ -13,11 +14,21 @@
  * Not safety-certified. No provider speed, ETA, traffic, or routing.
  * Map is a spatial evaluation / debug surface only.
  * NOT Product Canon.
+ *
+ * Prepared event markers (Issue #97):
+ *   Rendering a marker does NOT mean:
+ *   - RoadAhead accepted the event as relevant;
+ *   - the event is driver-facing;
+ *   - the event is legally authoritative;
+ *   - the event affects the three-circle control;
+ *   - the event passed route applicability / relevance logic.
+ *   Markers are candidate source observations only — emulator spatial QA.
  */
 
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { RouteGeometry } from "./contracts/routeGeometry.js";
+import type { RouteEvent } from "./contracts/routeEventDataset.js";
 
 // ---------------------------------------------------------------------------
 // Mutable Leaflet instances
@@ -37,6 +48,137 @@ let routePolyline: L.Polyline | null = null;
  */
 let vehicleMarker: L.CircleMarker | null = null;
 
+/**
+ * LayerGroup holding all prepared event CircleMarkers (Issue #97 / Stage 2).
+ *
+ * Individual markers are added/removed on every setEventMarkers() call.
+ * The group is cleared by clearEventMarkers() and on route change.
+ * Null until the map is initialized.
+ *
+ * Markers are candidate source observations — not applicability decisions,
+ * not driver-facing eligibility, not three-circle control.
+ * EMULATOR SPATIAL QA ONLY — NOT Product Canon.
+ */
+let eventMarkersLayer: L.LayerGroup | null = null;
+
+// ---------------------------------------------------------------------------
+// Source-type-label color map (Issue #97 / Stage 2)
+//
+// Maps source_type_label → Leaflet CircleMarker fill color.
+// Groups roughly by data category for QA readability.
+//
+// Color is purely a QA / debug differentiation aid — it carries no
+// product meaning, no applicability weight, no Canon standing.
+// Colors are local to this emulator; no external assets are used.
+//
+// Suggested groupings (per issue #97 scope):
+//   camera-like:      static_camera, traffic_light_camera, red_light_camera,
+//                     average_speed_camera, mobile_camera
+//   speed-regime:     speed_limit
+//   hazard/road:      speed_bump, bad_road, dangerous_turn,
+//                     dangerous_intersection, other_danger
+//   crossing:         pedestrian_crossing
+// ---------------------------------------------------------------------------
+
+/** Source-type-label color mapping. WIP — not Canon. */
+const SOURCE_TYPE_LABEL_COLORS: Record<string, string> = {
+  // camera-like
+  static_camera: "#1d4ed8",          // blue-700
+  traffic_light_camera: "#2563eb",   // blue-600
+  red_light_camera: "#7c3aed",       // violet-600
+  average_speed_camera: "#0891b2",   // cyan-600
+  mobile_camera: "#0e7490",          // cyan-700
+
+  // speed-regime
+  speed_limit: "#9333ea",            // purple-600
+
+  // hazard/road
+  speed_bump: "#dc2626",             // red-600
+  bad_road: "#ea580c",               // orange-600
+  dangerous_turn: "#b45309",         // amber-700
+  dangerous_intersection: "#d97706", // amber-600
+  other_danger: "#c2410c",           // orange-700
+
+  // crossing
+  pedestrian_crossing: "#16a34a",    // green-600
+};
+
+/** Fallback color for unknown source_type_label values. */
+const FALLBACK_MARKER_COLOR = "#6b7280"; // gray-500
+
+/**
+ * Return the marker fill color for the given source_type_label.
+ *
+ * Falls back to gray for any label not in the explicit map.
+ * Color is a QA differentiation aid — no product meaning.
+ */
+function getSourceTypeLabelColor(label: string): string {
+  return SOURCE_TYPE_LABEL_COLORS[label] ?? FALLBACK_MARKER_COLOR;
+}
+
+// ---------------------------------------------------------------------------
+// Popup HTML builder (Issue #97 / Stage 2)
+//
+// Source-type-label-first popup order per #95 display rule.
+// All field values are HTML-escaped before insertion.
+// EMULATOR DEBUG POPUP ONLY — NOT THE DRIVER-FACING UI.
+// ---------------------------------------------------------------------------
+
+/** Minimal HTML escaper for popup field values. */
+function escapeHtmlMapView(s: string | number | null | undefined): string {
+  if (s === null || s === undefined) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Build popup HTML for a prepared event marker.
+ *
+ * Display order follows #95 contract:
+ *   1. source_type_label (primary — Datakam/OSC source semantics)
+ *   2. raw_type (debugging provenance)
+ *   3. normalized type (coarse emulator context only)
+ *   4. speed_kmh
+ *   5. dirtype / direction_deg
+ *   6. source ref / id
+ *   7. distance_to_route_m
+ *   8. projected_route_distance_m
+ *   9. lon / lat
+ *
+ * EMULATOR DEBUG / QA POPUP — NOT THE DRIVER-FACING UI.
+ * NOT Product Canon. Candidate source observations only.
+ */
+function buildEventPopupHtml(ev: RouteEvent): string {
+  const projKm =
+    ev.projected_route_distance_m != null
+      ? (ev.projected_route_distance_m / 1000).toFixed(2) + " km"
+      : "—";
+
+  return `
+    <div class="ev-popup">
+      <div class="ev-popup-header">
+        <span class="ev-popup-source-label">${escapeHtmlMapView(ev.source_type_label)}</span>
+        <span class="ev-popup-wip-badge">candidate observation · not applicability</span>
+      </div>
+      <table class="ev-popup-table">
+        <tr><td>source label</td><td><strong>${escapeHtmlMapView(ev.source_type_label)}</strong></td></tr>
+        <tr><td>raw type</td><td>${escapeHtmlMapView(ev.raw_type)}</td></tr>
+        <tr><td>norm. type</td><td><em>${escapeHtmlMapView(ev.type)}</em></td></tr>
+        <tr><td>speed</td><td>${ev.speed_kmh != null ? escapeHtmlMapView(ev.speed_kmh) + " km/h" : "—"}</td></tr>
+        <tr><td>dirtype</td><td>${escapeHtmlMapView(ev.dirtype)}</td></tr>
+        <tr><td>direction</td><td>${escapeHtmlMapView(ev.direction_deg)}°</td></tr>
+        <tr><td>id / ref</td><td>${escapeHtmlMapView(ev.id)} / ${escapeHtmlMapView(ev.source_ref)}</td></tr>
+        <tr><td>dist to route</td><td>${escapeHtmlMapView(ev.distance_to_route_m.toFixed(1))} m</td></tr>
+        <tr><td>proj. route pos</td><td>${projKm}</td></tr>
+        <tr><td>lon / lat</td><td>${escapeHtmlMapView(ev.lon.toFixed(6))} / ${escapeHtmlMapView(ev.lat.toFixed(6))}</td></tr>
+      </table>
+    </div>
+  `;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -46,7 +188,7 @@ let vehicleMarker: L.CircleMarker | null = null;
  *
  * Creates an OSM tile layer with required attribution, a route polyline from
  * the initial route, and a vehicle marker at position 0. Fits the map to the
- * initial route bounds.
+ * initial route bounds. Also initializes the event markers layer group.
  *
  * Must be called once after the map container element exists in the DOM.
  * Calling again on the same container is a no-op (guard on `map` instance).
@@ -81,6 +223,10 @@ export function initMap(
     attribution:
       '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
   }).addTo(map);
+
+  // Initialize event markers layer group (Issue #97 / Stage 2).
+  // Layer is added to map below vehicle marker so vehicle stays on top.
+  eventMarkersLayer = L.layerGroup().addTo(map);
 
   // Render the initial route and vehicle marker, then fit the map.
   setMapRoute(initialRoute);
@@ -151,6 +297,103 @@ export function updateVehicleMarker(lat: number, lon: number): void {
   if (!map || !vehicleMarker) return;
   if (!isFinite(lat) || !isFinite(lon)) return;
   vehicleMarker.setLatLng([lat, lon]);
+}
+
+/**
+ * Render prepared route event markers on the map (Issue #97 / Stage 2).
+ *
+ * Clears any previously rendered event markers and creates one CircleMarker
+ * per event in the provided array. Markers use source-type-label-aware colors
+ * and show a compact popup with source_type_label first (per #95 display rule).
+ *
+ * Only events whose source_type_label appears in `visibleLabels` are rendered.
+ * This supports the per-label visibility filter without reloading the dataset.
+ *
+ * Respects the existing route-load race guard: the caller (main.ts) must only
+ * call this function after confirming the load token is still current.
+ *
+ * EMULATOR SPATIAL QA ONLY — NOT THE DRIVER-FACING UI. NOT Product Canon.
+ * Rendering a marker does NOT mean:
+ *   - RoadAhead accepted the event as relevant;
+ *   - the event is driver-facing;
+ *   - the event passed applicability logic;
+ *   - the event affects the three-circle control.
+ *
+ * Issue #97 / Stage 2.
+ *
+ * @param events - Prepared route events to render.
+ * @param visibleLabels - Set of source_type_label values to show. If a label
+ *   is absent from the set, its markers are skipped (not rendered).
+ */
+export function setEventMarkers(
+  events: RouteEvent[],
+  visibleLabels: Set<string>
+): void {
+  if (!map || !eventMarkersLayer) return;
+
+  // Clear all previously rendered event markers.
+  eventMarkersLayer.clearLayers();
+
+  for (const ev of events) {
+    if (!visibleLabels.has(ev.source_type_label)) continue;
+
+    const color = getSourceTypeLabelColor(ev.source_type_label);
+
+    const marker = L.circleMarker([ev.lat, ev.lon], {
+      radius: 6,
+      color: "#fff",
+      weight: 1,
+      fillColor: color,
+      fillOpacity: 0.85,
+    });
+
+    marker.bindPopup(buildEventPopupHtml(ev), {
+      maxWidth: 300,
+      className: "ev-popup-container",
+    });
+
+    eventMarkersLayer.addLayer(marker);
+  }
+}
+
+/**
+ * Remove all prepared event markers from the map (Issue #97 / Stage 2).
+ *
+ * Called when:
+ *   - selected route changes;
+ *   - route is reset to synthetic;
+ *   - prepared dataset is missing / unloaded / invalid;
+ *   - a new route load supersedes a prior one.
+ *
+ * Safe to call before the map is initialized (no-op).
+ * EMULATOR SPATIAL QA ONLY — NOT Product Canon.
+ */
+export function clearEventMarkers(): void {
+  if (!eventMarkersLayer) return;
+  eventMarkersLayer.clearLayers();
+}
+
+/**
+ * Update prepared event marker visibility without re-creating all markers.
+ *
+ * Re-renders markers for the given event list applying the new filter.
+ * Cheaper than reconstructing all markers when the source data has not changed,
+ * but since CircleMarkers are lightweight and the dataset is bounded (~hundreds),
+ * we simply call setEventMarkers() for correctness and simplicity.
+ *
+ * Caller is responsible for providing the full events array and the updated
+ * visibleLabels set. No-op if map is not initialized.
+ *
+ * EMULATOR SPATIAL QA ONLY — NOT Product Canon. Issue #97 / Stage 2.
+ *
+ * @param events - The full prepared events array (unchanged).
+ * @param visibleLabels - Updated set of visible source_type_labels.
+ */
+export function updateEventMarkersVisibility(
+  events: RouteEvent[],
+  visibleLabels: Set<string>
+): void {
+  setEventMarkers(events, visibleLabels);
 }
 
 // ---------------------------------------------------------------------------
