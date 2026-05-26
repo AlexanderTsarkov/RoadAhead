@@ -540,14 +540,50 @@ function loadRouteFromRegistry(entry: RouteRegistryEntry): void {
 }
 
 /**
+ * True when a fetch response indicates the prepared events file is absent.
+ *
+ * Covers HTTP 404, empty body, and dev-server SPA HTML fallback (Vite often
+ * returns index.html with 200 for missing public assets — not a real dataset).
+ *
+ * WIP — NOT Product Canon. Stage 2 / Issue #93.
+ */
+function isPreparedEventsDatasetMissing(
+  resp: Response,
+  bodyText: string
+): boolean {
+  if (resp.status === 404) return true;
+  const trimmed = bodyText.trim();
+  if (trimmed.length === 0) return true;
+  const contentType = (resp.headers.get("content-type") ?? "").toLowerCase();
+  if (contentType.includes("text/html")) return true;
+  const head = trimmed.slice(0, 32).toLowerCase();
+  if (head.startsWith("<!doctype") || head.startsWith("<html")) return true;
+  return false;
+}
+
+/**
+ * Mark prepared events as not prepared (missing file — normal Stage 2 state).
+ */
+function setPreparedEventsNotPrepared(reason: string, eventsUrl: string): void {
+  console.debug(
+    `[Route/Data] Prepared events not available (${reason}): ${eventsUrl}`
+  );
+  routeEventsState = { kind: "not_prepared" };
+  render();
+}
+
+/**
  * Load the prepared route-scoped event dataset for a registry route.
  *
  * Called by loadRouteFromRegistry() after geometry loads successfully.
  * Route still functions if the dataset is missing or fails to validate.
  *
- * On 404: sets routeEventsState to { kind: "not_prepared" }.
- * On parse error: sets routeEventsState to { kind: "error", message }.
- * On success: sets routeEventsState to { kind: "loaded", dataset }.
+ * Missing vs invalid:
+ *   - Missing (404, empty body, HTML SPA fallback): { kind: "not_prepared" }
+ *   - Invalid (bad JSON, schema/route_id validation): { kind: "error", message }
+ *   - Success: { kind: "loaded", dataset }
+ *
+ * Route geometry remains loaded in all cases.
  *
  * WIP — NOT Product Canon. Stage 2 / Issue #93.
  */
@@ -556,31 +592,56 @@ function loadPreparedEventsForRoute(
   eventsUrl: string
 ): void {
   fetch(eventsUrl)
-    .then((resp) => {
-      if (resp.status === 404) {
-        routeEventsState = { kind: "not_prepared" };
-        render();
+    .then(async (resp) => {
+      const bodyText = await resp.text();
+
+      if (isPreparedEventsDatasetMissing(resp, bodyText)) {
+        const reason =
+          resp.status === 404 ? "HTTP 404" : "file not found or empty response";
+        setPreparedEventsNotPrepared(reason, eventsUrl);
         return null;
       }
+
       if (!resp.ok) {
         throw new Error(
-          `Failed to fetch prepared events: HTTP ${resp.status} (${eventsUrl})`
+          `Prepared events fetch failed: HTTP ${resp.status} (${eventsUrl})`
         );
       }
-      return resp.json() as Promise<unknown>;
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(bodyText) as unknown;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(
+          `[Route/Data] Prepared events dataset is not valid JSON (${eventsUrl}):`,
+          msg
+        );
+        throw new Error(`Prepared events dataset is not valid JSON: ${msg}`);
+      }
+
+      return parsed;
     })
     .then((parsed) => {
       if (parsed === null) return;
-      const dataset = parseRouteEventDataset(parsed);
-      validateRouteEventDatasetRouteId(dataset, routeId);
-      routeEventsState = { kind: "loaded", dataset };
-      render();
+      try {
+        const dataset = parseRouteEventDataset(parsed);
+        validateRouteEventDatasetRouteId(dataset, routeId);
+        routeEventsState = { kind: "loaded", dataset };
+        render();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(
+          `[Route/Data] Prepared events dataset validation failed (${eventsUrl}):`,
+          msg
+        );
+        throw new Error(`Prepared events dataset validation failed: ${msg}`);
+      }
     })
     .catch((e: unknown) => {
-      routeEventsState = {
-        kind: "error",
-        message: e instanceof Error ? e.message : String(e),
-      };
+      // Only genuine parse/validation/fetch failures reach here — not missing files.
+      const message = e instanceof Error ? e.message : String(e);
+      routeEventsState = { kind: "error", message };
       render();
     });
 }
