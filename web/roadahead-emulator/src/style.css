@@ -15,21 +15,627 @@
   padding: 0;
 }
 
+/* ── Map-first simulator layout (Issue #91 / Stage 2) ───────────────────── */
+/*
+ * Full-viewport layout: compact top bar → map fills remaining first viewport →
+ * debug sections accessible by scrolling below.
+ *
+ * html/body: no padding, no max-width constraint.
+ * #app: full-width flex column.
+ * .sim-main: height = 100vh minus topbar; map is flex:1 primary surface.
+ * .sim-debug-area: below the first viewport, accessible by scrolling.
+ *
+ * EMULATOR WIP LAYOUT — not driver-facing UI, not Product Canon.
+ * Issue #91 / Stage 2 — map-first simulator layout baseline.
+ */
+
+html {
+  height: 100%;
+}
+
 body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 15px;
   line-height: 1.6;
   color: #1a1a1a;
-  background: #f0f0f0;
-  padding: 1.5rem 1rem 3rem;
+  background: #0e1621;
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
 }
 
 #app {
-  max-width: 860px;
-  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
 
-/* ── Header ─────────────────────────────────────────────────────────────── */
+/* ── Simulator top control bar (Issue #91) ───────────────────────────────── */
+/*
+ * Compact dark control bar: title + route status + Load Rostov1 (row 1);
+ * progress slider + playback + speed controls + scenario selector (row 2).
+ *
+ * EMULATOR OPERATOR / QA UI ONLY — NOT THE DRIVER-FACING UI.
+ * Not final UX design. WIP. Not Product Canon.
+ */
+
+.sim-topbar {
+  background: #1a2233;
+  color: #e8ecf2;
+  padding: 0.4rem 1rem 0.45rem;
+  flex-shrink: 0;
+  border-bottom: 2px solid #2d3e5a;
+  z-index: 100;
+}
+
+.sim-topbar-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+}
+
+.sim-topbar-title-row {
+  font-size: 0.82rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid #2d3e5a;
+  margin-bottom: 0.3rem;
+}
+
+.sim-topbar-controls-row {
+  gap: 0.35rem 0.6rem;
+}
+
+.sim-topbar-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: #c8d8f0;
+  flex-shrink: 0;
+}
+
+.sim-topbar-wip-badge {
+  font-size: 0.67rem;
+  background: #2d1a1a;
+  color: #f0a0a0;
+  border: 1px solid #7a3030;
+  border-radius: 3px;
+  padding: 0.1em 0.4em;
+  flex-shrink: 0;
+}
+
+.sim-topbar-route-info {
+  font-size: 0.7rem;
+  color: #6a7f9a;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Sim topbar control groups ────────────────────────────────────────────── */
+
+.sim-topbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.sim-topbar-progress-group {
+  flex: 1;
+  min-width: 120px;
+}
+
+.sim-topbar-playback-group {
+  flex-shrink: 0;
+}
+
+.sim-topbar-sep {
+  width: 1px;
+  height: 22px;
+  background: #2d3e5a;
+  flex-shrink: 0;
+}
+
+.sim-label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #90a8c4;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sim-slider {
+  flex: 1;
+  min-width: 60px;
+  height: 5px;
+  accent-color: #5ba8e5;
+  cursor: pointer;
+}
+
+.sim-progress-val {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #b8ccdf;
+  min-width: 2.8rem;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.sim-playback-status {
+  font-size: 0.76rem;
+  color: #6a8aaa;
+  min-width: 3rem;
+}
+
+.sim-speed-group {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.sim-speed-input {
+  width: 54px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-align: center;
+  color: #eef3f8;
+  background: #1b2a3d;
+  border: 1px solid #3a526a;
+  border-radius: 4px;
+  padding: 0.18rem 0.3rem;
+}
+
+.sim-unit {
+  font-size: 0.75rem;
+  color: #6a8aaa;
+  flex-shrink: 0;
+}
+
+.sim-scenario-select {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.35rem;
+  border-radius: 4px;
+  border: 1px solid #3a526a;
+  background: #1b2a3d;
+  color: #eef3f8;
+  cursor: pointer;
+  max-width: 240px;
+}
+
+.sim-scenario-select:focus {
+  outline: 2px solid #5ba8e5;
+  outline-offset: 1px;
+}
+
+/* Compact multiplier select — narrower than scenario select */
+.sim-multiplier-select {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.25rem;
+  border-radius: 4px;
+  border: 1px solid #3a526a;
+  background: #1b2a3d;
+  color: #a8d8f8;
+  cursor: pointer;
+  width: 60px;
+  flex-shrink: 0;
+}
+
+.sim-multiplier-select:focus {
+  outline: 2px solid #5ba8e5;
+  outline-offset: 1px;
+}
+
+/* ── Sim buttons ─────────────────────────────────────────────────────────── */
+
+.sim-btn {
+  font-size: 0.8rem;
+  font-weight: 600;
+  border-radius: 4px;
+  border: 1px solid #3a526a;
+  background: #253447;
+  color: #c0d4e8;
+  padding: 0.22rem 0.6rem;
+  cursor: pointer;
+  user-select: none;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: background 0.1s, border-color 0.1s;
+  white-space: nowrap;
+}
+
+.sim-btn:hover {
+  background: #304a63;
+  border-color: #4a6882;
+}
+
+.sim-btn:active {
+  background: #3c5b78;
+}
+
+.sim-btn-sm {
+  padding: 0.18rem 0.45rem;
+  font-size: 0.76rem;
+}
+
+.sim-btn-play {
+  background: #1e4a7a;
+  border-color: #2a6aa0;
+  color: #a8d8f8;
+}
+
+.sim-btn-play:hover {
+  background: #255d9a;
+  border-color: #3a80ba;
+}
+
+.sim-btn-green {
+  background: #1a4a2a;
+  border-color: #2a6a3a;
+  color: #80d8a0;
+}
+
+.sim-btn-green:hover {
+  background: #205a32;
+  border-color: #3a8050;
+}
+
+/* ── Main simulator viewport (Issue #91) ─────────────────────────────────── */
+/*
+ * Map-first: map takes all available horizontal space; compact side panel
+ * shows three-circle output, operator summary, and upcoming events.
+ *
+ * Height: 100vh minus the top control bar (approx 82px = title row + controls
+ * row + border). Uses CSS variable --sim-topbar-h for a single tuning point.
+ * WIP approximation acceptable for dev/QA tool.
+ *
+ * Not navigation. Not driver-facing. Not Product Canon.
+ */
+
+:root {
+  --sim-topbar-h: 84px;
+}
+
+.sim-main {
+  display: flex;
+  height: calc(100vh - var(--sim-topbar-h));
+  min-height: 300px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* ── Map (primary working surface) ──────────────────────────────────────── */
+
+.emulator-map {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  /* Leaflet requires an explicit height — flex fills the sim-main height. */
+  z-index: 0;
+}
+
+/* ── Compact side panel ──────────────────────────────────────────────────── */
+
+.sim-panel {
+  width: 220px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #1a2233;
+  border-left: 1px solid #2d3e5a;
+}
+
+.sim-panel-section {
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid #2d3e5a;
+}
+
+.sim-panel-circles-wrap {
+  flex-shrink: 0;
+}
+
+/* Compact three circles in the side panel — override standard 140×140 size. */
+.sim-panel-circles-wrap .three-circles {
+  gap: 0.4rem;
+  margin: 0.2rem 0 0.25rem;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+}
+
+.sim-panel-circles-wrap .circle {
+  width: 62px;
+  height: 62px;
+  border-color: #2d3e5a;
+  background: #1b2a3d;
+  padding: 0.25rem;
+}
+
+.sim-panel-circles-wrap .circle-value {
+  font-size: 1.25rem;
+  color: #e8ecf2;
+}
+
+.sim-panel-circles-wrap .circle-label {
+  font-size: 0.55rem;
+  color: #7090a8;
+}
+
+.sim-panel-circles-wrap .circle-unit {
+  font-size: 0.55rem;
+  color: #5a7890;
+}
+
+.sim-panel-circles-wrap .circle-sublabel {
+  font-size: 0.52rem;
+  color: #4a6880;
+}
+
+.sim-panel-circles-wrap .circle-current {
+  border-color: #3d5570;
+  background: #1b2a3d;
+}
+
+.sim-panel-circles-wrap .circle-current .circle-value {
+  color: #e8ecf2;
+}
+
+.sim-panel-circles-wrap .circle-primary.circle-state-active {
+  border-color: #27ae60;
+  background: #0a2a1a;
+}
+
+.sim-panel-circles-wrap .circle-primary.circle-state-active .circle-value {
+  color: #50d090;
+}
+
+.sim-panel-circles-wrap .circle-primary.circle-state-inactive {
+  border-color: #2d3e5a;
+  background: #1a2233;
+}
+
+.sim-panel-circles-wrap .circle-primary.circle-state-inactive .circle-value {
+  color: #3d5570;
+}
+
+.sim-panel-circles-wrap .circle-secondary {
+  border-color: #2d3e5a;
+  background: #1a2233;
+  opacity: 0.65;
+}
+
+.sim-panel-circles-wrap .circle-secondary .circle-value {
+  color: #3d5570;
+}
+
+.sim-panel-circles-wrap .speed-ref-state-row {
+  font-size: 0.64rem;
+  color: #7090a8;
+  text-align: left;
+  margin-top: 0.15rem;
+}
+
+.sim-panel-circles-wrap .state-approach-target {
+  color: #50d090;
+}
+
+.sim-panel-circles-wrap .state-unknown {
+  color: #6a8aaa;
+}
+
+.sim-panel-circles-wrap .state-reason {
+  color: #506a82;
+}
+
+/* Operator summary in side panel */
+.sim-panel-summary-wrap {
+  flex-shrink: 0;
+}
+
+.sim-panel-summary-wrap .op-summary {
+  flex: none;
+}
+
+.sim-panel-summary-wrap .op-summary-grid {
+  gap: 0.25rem 0.6rem;
+}
+
+.sim-panel-summary-wrap .op-summary-label {
+  font-size: 0.58rem;
+}
+
+.sim-panel-summary-wrap .op-summary-value {
+  font-size: 0.76rem;
+}
+
+/* Upcoming events strip in side panel */
+.sim-panel-upcoming-wrap {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Override upcoming section styles for dark side panel context */
+.sim-panel-upcoming-wrap h2 {
+  font-size: 0.75rem;
+  color: #90a8c4;
+  margin-bottom: 0.4rem;
+}
+
+.sim-panel-upcoming-wrap .wip-badge {
+  font-size: 0.58rem;
+  background: #1b2a3d;
+  border-color: #2d3e5a;
+  color: #5a7890;
+}
+
+.sim-panel-upcoming-wrap .upcoming-note {
+  font-size: 0.68rem;
+  color: #5a7890;
+  border-left-color: #2d3e5a;
+  margin-bottom: 0.5rem;
+}
+
+.sim-panel-upcoming-wrap .upcoming-empty {
+  font-size: 0.72rem;
+  color: #5a7890;
+}
+
+.sim-panel-upcoming-wrap .upcoming-empty-note {
+  font-size: 0.65rem;
+  color: #3d5570;
+}
+
+.sim-panel-upcoming-wrap .upcoming-cards {
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.sim-panel-upcoming-wrap .upcoming-card {
+  min-width: 0;
+  max-width: none;
+  background: #1b2a3d;
+  border-color: #2d3e5a;
+  border-top-color: #3d5570;
+}
+
+.sim-panel-upcoming-wrap .upcoming-event-id {
+  color: #90b8d8;
+}
+
+.sim-panel-upcoming-wrap .upcoming-advisory {
+  color: #7090a8;
+}
+
+.sim-panel-upcoming-wrap .upcoming-distance {
+  color: #c8d8f0;
+}
+
+.sim-panel-upcoming-wrap .upcoming-card-primary {
+  border-top-color: #27ae60;
+  background: #0d2218;
+  border-color: #1a4a2a;
+}
+
+.sim-panel-upcoming-wrap .upcoming-card-primary .upcoming-distance {
+  color: #50d090;
+}
+
+/* OSM attribution credit line at bottom of panel */
+.sim-panel-map-credit {
+  margin-top: auto;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.62rem;
+  color: #3d5570;
+  border-top: 1px solid #2d3e5a;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.sim-panel-map-credit a {
+  color: #4a7a9a;
+}
+
+/* ── Debug / verbose area below main viewport (Issue #91) ─────────────────── */
+/*
+ * Verbose debug sections are pushed below the first-viewport sim-main area.
+ * Wrapped in <details> elements — collapsed by default, accessible by scrolling
+ * and opening. Does not compete with the map for viewport space.
+ *
+ * Background matches the sim-main dark theme for visual continuity.
+ * EMULATOR QA ONLY — NOT the driver-facing UI. Not Product Canon.
+ */
+
+.sim-debug-area {
+  background: #f0f0f0;
+  border-top: 3px solid #2d3e5a;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.sim-details {
+  border-bottom: 1px solid #d0d0d0;
+  background: #fff;
+}
+
+.sim-details-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.25rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #333;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  background: #f8f8f8;
+  border: none;
+  flex-wrap: wrap;
+}
+
+.sim-details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.sim-details-summary::before {
+  content: "▸";
+  font-size: 0.75rem;
+  color: #888;
+  flex-shrink: 0;
+  transition: transform 0.15s;
+}
+
+.sim-details[open] > .sim-details-summary::before {
+  transform: rotate(90deg);
+}
+
+.sim-details-summary:hover {
+  background: #f0f0f0;
+  color: #111;
+}
+
+.sim-details-badge {
+  font-size: 0.68rem;
+  font-weight: 400;
+  color: #888;
+  background: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 3px;
+  padding: 0.1em 0.4em;
+}
+
+.sim-details-content {
+  padding: 1rem 1.5rem;
+}
+
+/* Sections inside details lose their own outer padding — the details provides it */
+.sim-details .route-import-section,
+.sim-details .scenario-inspector-section,
+.sim-details .evidence-snapshot-section,
+.sim-details .debug-section,
+.sim-details .canon-guardrails {
+  border: none;
+  border-radius: 0;
+  background: #fff;
+}
+
+/* WIP notice at the bottom of debug area */
+.sim-debug-wip-notice {
+  margin: 0;
+  border-radius: 0;
+  border: none;
+  border-top: 1px solid #e0c8b0;
+  font-size: 0.82rem;
+  color: #555;
+  background: #fffbf5;
+  padding: 0.75rem 1.25rem;
+}
+
+/* ── Legacy header/main selectors — no longer rendered in map-first layout ── */
+/* Kept to avoid removing active base styles; these elements are not rendered. */
 
 header {
   margin-bottom: 1.5rem;
@@ -48,8 +654,6 @@ h1 {
   font-size: 0.85rem;
   color: #666;
 }
-
-/* ── Main layout ─────────────────────────────────────────────────────────── */
 
 main {
   display: flex;
@@ -1705,18 +2309,11 @@ code {
   font-style: italic;
 }
 
-/* ── Map section (Issue #88 / Stage 2 — route map baseline) ─────────────── */
-/* Web emulator spatial evaluation / debug surface only.
-   Not driver-facing UI. Not navigation. Not Product Canon.
+/* ── Map section styles (Issue #88 / Stage 2) ────────────────────────────── */
+/* .emulator-map layout rule is defined in the sim-main section above.
+   These retain optional helper classes that may be used outside the map div.
    Map data © OpenStreetMap contributors (ODbL).
    Attribution must remain visible — do not hide .leaflet-control-attribution. */
-
-.map-section {
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 6px;
-  padding: 0.75rem 1rem;
-}
 
 .map-disclaimer {
   font-size: 0.78rem;
@@ -1728,13 +2325,4 @@ code {
 
 .map-disclaimer a {
   color: #2563eb;
-}
-
-.emulator-map {
-  width: 100%;
-  height: 420px;
-  border-radius: 4px;
-  border: 1px solid #c8c8c8;
-  /* Leaflet requires an explicit height to render — do not remove. */
-  z-index: 0;
 }

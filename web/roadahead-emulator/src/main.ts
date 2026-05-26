@@ -73,12 +73,37 @@ let playbackAnimFrameId = 0;
 /** DOMHighResTimeStamp of the last animation tick — used to compute delta. */
 let playbackLastTimestamp = 0;
 
+// ---------------------------------------------------------------------------
+// Playback multiplier and route-length-based progression (Issue #91 fixes)
+//
+// Playback now advances route progress using the simulated vehicle speed and
+// an owner-controlled multiplier rather than a fixed % / second constant:
+//
+//   progress_delta_fraction =
+//     (currentSpeedKmh × playbackMultiplier × deltaSeconds / 3600) / activeRouteLengthKm
+//
+// activeRouteLengthKm is computed from active route coordinates via haversine
+// and cached. It is recomputed whenever the active route changes.
+//
+// This is WIP emulator simulation only — NOT navigation, NOT ETA, NOT routing,
+// NOT provider speed, NOT traffic. NOT Product Canon.
+// ---------------------------------------------------------------------------
+
 /**
- * WIP emulator constant: route progress advance rate while playing.
- * 5 % / second → 20 seconds for a full 0→100% traversal.
- * WIP default — NOT Product Canon. Adjust freely for product evaluation.
+ * WIP playback speed multiplier.
+ * Scales simulated vehicle speed to accelerate route traversal.
+ * Presets in UI: 25x, 50x, 100x (default), 150x.
+ * WIP emulator control — NOT Product Canon.
  */
-const PLAYBACK_SPEED_PCT_PER_SEC = 5;
+let playbackMultiplier = 100;
+
+/**
+ * Cached arc-length of the currently active route in kilometres.
+ * Computed via haversine from activeRoute.coordinates.
+ * Updated by updateActiveRouteLength() on route changes and on buildApp().
+ * WIP emulator value — NOT Product Canon.
+ */
+let activeRouteLengthKm = 0;
 
 // ---------------------------------------------------------------------------
 // Debug filter state
@@ -424,170 +449,191 @@ function getState(): SimulationState {
 // DOM construction
 // ---------------------------------------------------------------------------
 
+/**
+ * Build the map-first Stage 2 simulator layout.
+ *
+ * Layout structure (Issue #91):
+ *   - Compact top control bar: route status + quick Load Rostov1, progress
+ *     slider, Play/Pause, speed controls, scenario selector.
+ *   - Main simulator area: large real map (flex:1) + compact side panel with
+ *     three-circle display, operator summary, and upcoming events strip.
+ *   - Debug/verbose sections: pushed below the first viewport into collapsible
+ *     <details> elements accessible by scrolling.
+ *
+ * All DOM IDs consumed by render functions and attachControls() are preserved:
+ *   progress-slider, speed-input, speed-down-*, speed-up-*, playback-btn,
+ *   playback-status, progress-display, scenario-select, op-route-info,
+ *   three-circles, speed-ref-state-row, op-summary, upcoming-events-strip,
+ *   route-import-section, scenario-inspector, evidence-snapshot, debug-section,
+ *   emulator-map.
+ *
+ * EMULATOR OPERATOR / QA UI ONLY — NOT THE DRIVER-FACING UI.
+ * Not final UX design. All values are WIP emulator defaults — not Canon.
+ * Issue #91 / Stage 2 — map-first simulator layout baseline.
+ */
 function buildApp(): void {
   const app = document.querySelector<HTMLDivElement>("#app");
   if (!app) throw new Error("Root #app element not found");
 
-  // Build scenario options for the selector drop-down.
-  // Reuses SYNTHETIC_SCENARIOS directly — no data duplication.
-  // WIP — NOT Product Canon.
   const scenarioOptions = SYNTHETIC_SCENARIOS.map(
     (s) =>
       `<option value="${escapeHtml(s.id)}">${escapeHtml(s.id)} — ${escapeHtml(s.title)}</option>`
-  ).join("\n              ");
-
-  // ---------------------------------------------------------------------------
-  // Sticky operator simulation header (Slice 4.6 / Issue #63)
-  //
-  // The op-header is position:sticky so it remains visible while scrolling the
-  // debug table below. Controls and the three-circle display are housed here.
-  //
-  // EMULATOR OPERATOR / QA UI ONLY — NOT THE DRIVER-FACING UI.
-  // Not final UX design. All values are WIP emulator defaults — not Canon.
-  //
-  // The same DOM IDs used by attachControls() (progress-slider, speed-input,
-  // speed-down-10, speed-down-1, speed-up-1, speed-up-10) and renderThreeCircles()
-  // (three-circles, speed-ref-state-row) are preserved in the sticky header so
-  // those functions wire and render correctly without changes.
-  // ---------------------------------------------------------------------------
+  ).join("\n");
 
   app.innerHTML = `
-    <div id="op-header" class="op-header" aria-label="Operator simulation header — emulator debug / QA only">
-      <div class="op-header-row op-header-top-row">
-        <span class="op-header-title">RoadAhead Phase 0 · Operator Simulation</span>
-        <span class="op-header-wip-badge">debug / QA only — not driver-facing UI</span>
-        <span class="op-header-route-info" id="op-route-info"><!-- populated by render() --></span>
+    <!-- ── Compact simulator top control bar ────────────────────────────── -->
+    <div id="sim-topbar" class="sim-topbar" aria-label="Simulator control bar — emulator debug / QA only">
+
+      <!-- Row 1: identity + route status + quick Rostov1 load -->
+      <div class="sim-topbar-row sim-topbar-title-row">
+        <span class="sim-topbar-title">RoadAhead P0 · Emulator</span>
+        <span class="sim-topbar-wip-badge">debug / QA only — not driver-facing UI</span>
+        <span id="op-route-info" class="sim-topbar-route-info"></span>
+        <button id="topbar-rostov1-btn" type="button" class="sim-btn sim-btn-green"
+          title="Load Rostov1 owner-provided route — geometry only, not provider data">Load Rostov1</button>
       </div>
 
-      <div class="op-header-row op-header-controls-row">
-        <div class="op-controls-block">
-          <div class="control-row">
-            <label for="progress-slider" class="control-label">Route Progress</label>
-            <input
-              type="range"
-              id="progress-slider"
-              min="0" max="100" value="0" step="1"
-              class="progress-slider"
-            >
-            <span id="progress-display" class="control-value">0%</span>
+      <!-- Row 2: progress, playback, speed, scenario -->
+      <div class="sim-topbar-row sim-topbar-controls-row">
+        <div class="sim-topbar-group sim-topbar-progress-group">
+          <label for="progress-slider" class="sim-label">Progress</label>
+          <input type="range" id="progress-slider" min="0" max="100" value="0" step="1" class="sim-slider">
+          <span id="progress-display" class="sim-progress-val">0%</span>
+        </div>
+        <div class="sim-topbar-group sim-topbar-playback-group">
+          <button id="playback-btn" type="button" class="sim-btn sim-btn-play">&#9654; Play</button>
+          <span id="playback-status" class="sim-playback-status">paused</span>
+          <select id="playback-multiplier-select" class="sim-multiplier-select"
+            title="Playback speed multiplier — scales simulated vehicle speed for faster route traversal. WIP emulator only, not navigation, not ETA.">
+            <option value="25">25&#215;</option>
+            <option value="50">50&#215;</option>
+            <option value="100" selected>100&#215;</option>
+            <option value="150">150&#215;</option>
+          </select>
+          <span class="sim-label" title="Simulation speed multiplier">sim</span>
+        </div>
+        <div class="sim-topbar-sep" aria-hidden="true"></div>
+        <div class="sim-topbar-group">
+          <span class="sim-label">Speed</span>
+          <div class="sim-speed-group">
+            <button id="speed-down-10" type="button" class="sim-btn sim-btn-sm">&#8722;10</button>
+            <button id="speed-down-1" type="button" class="sim-btn sim-btn-sm">&#8722;1</button>
+            <input type="number" id="speed-input" value="60" min="0" max="250" step="1" class="sim-speed-input">
+            <button id="speed-up-1" type="button" class="sim-btn sim-btn-sm">+1</button>
+            <button id="speed-up-10" type="button" class="sim-btn sim-btn-sm">+10</button>
+            <span class="sim-unit">km/h</span>
           </div>
-          <div class="control-row playback-control-row">
-            <label class="control-label">Playback</label>
-            <button id="playback-btn" class="playback-btn" type="button">▶ Play</button>
-            <span id="playback-status" class="playback-status">paused</span>
-            <span class="playback-note">WIP simulation — not navigation</span>
-          </div>
-          <div class="control-row">
-            <label class="control-label">Current Speed</label>
-            <div class="speed-control-group">
-              <button id="speed-down-10" class="speed-btn" type="button">−10</button>
-              <button id="speed-down-1" class="speed-btn" type="button">−1</button>
-              <input
-                type="number"
-                id="speed-input"
-                value="60"
-                min="0" max="250" step="1"
-                class="speed-input"
-              >
-              <button id="speed-up-1" class="speed-btn" type="button">+1</button>
-              <button id="speed-up-10" class="speed-btn" type="button">+10</button>
-              <span class="unit">km/h</span>
-            </div>
-          </div>
-          <div class="control-row">
-            <label for="scenario-select" class="control-label">Scenario</label>
-            <select id="scenario-select" class="scenario-select">
-              <option value="">–– none / manual ––</option>
-              ${scenarioOptions}
-            </select>
-          </div>
+        </div>
+        <div class="sim-topbar-sep" aria-hidden="true"></div>
+        <div class="sim-topbar-group">
+          <label for="scenario-select" class="sim-label">Scenario</label>
+          <select id="scenario-select" class="sim-scenario-select">
+            <option value="">&#8211;&#8211; none / manual &#8211;&#8211;</option>
+            ${scenarioOptions}
+          </select>
         </div>
       </div>
 
-      <div class="op-header-row op-header-state-row">
-        <div class="op-circles-wrap">
-          <div class="three-circles" id="three-circles"><!-- populated by render() --></div>
-          <p class="speed-ref-state-row" id="speed-ref-state-row"><!-- populated by render() --></p>
+    </div>
+
+    <!-- ── Main simulator viewport: map (primary) + compact side panel ─── -->
+    <div id="sim-main" class="sim-main">
+
+      <!-- Real map — primary working surface (Issue #88 / Stage 2) -->
+      <!-- Map data © OpenStreetMap contributors (ODbL). Attribution kept visible. -->
+      <div id="emulator-map" class="emulator-map" aria-label="Route map — emulator spatial evaluation, debug only"></div>
+
+      <!-- Compact side panel: three circles + op summary + upcoming events -->
+      <div id="sim-panel" class="sim-panel">
+
+        <div class="sim-panel-section sim-panel-circles-wrap">
+          <div class="three-circles" id="three-circles"></div>
+          <p class="speed-ref-state-row" id="speed-ref-state-row"></p>
         </div>
-        <div class="op-summary" id="op-summary"><!-- populated by renderOperatorHeader() --></div>
+
+        <div class="sim-panel-section sim-panel-summary-wrap">
+          <div class="op-summary" id="op-summary"></div>
+        </div>
+
+        <div class="sim-panel-section sim-panel-upcoming-wrap" id="upcoming-events-strip"></div>
+
+        <div class="sim-panel-map-credit">
+          Map: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OSM contributors</a>
+          (ODbL) · spatial eval only · not navigation
+        </div>
+
       </div>
     </div>
 
-    <header>
-      <h1>RoadAhead Phase 0 — Web Route Emulator</h1>
-      <p class="subtitle">
-        Phase 0 validation emulator · Slice 4.6 — sticky operator simulation header ·
-        emulator debug / QA UI only — not the driver-facing UI · not final UX design
-      </p>
-    </header>
+    <!-- ── Verbose / debug sections — below main viewport, collapsible ── -->
+    <div class="sim-debug-area">
 
-    <main>
-      <section class="wip-notice">
-        <strong>Emulator debug / QA tool only — NOT the driver-facing UI.</strong>
+      <details class="sim-details">
+        <summary class="sim-details-summary">Route Import / File Controls
+          <span class="sim-details-badge">geometry only · not navigation · not Canon</span>
+        </summary>
+        <div id="route-import-section" class="route-import-section"></div>
+      </details>
+
+      <details class="sim-details">
+        <summary class="sim-details-summary">Scenario Inspector
+          <span class="sim-details-badge">debug / QA only</span>
+        </summary>
+        <div id="scenario-inspector" class="scenario-inspector-section"></div>
+      </details>
+
+      <details class="sim-details">
+        <summary class="sim-details-summary">Evidence Snapshot
+          <span class="sim-details-badge">manual QA · not Canon</span>
+        </summary>
+        <div id="evidence-snapshot" class="evidence-snapshot-section"></div>
+      </details>
+
+      <details class="sim-details">
+        <summary class="sim-details-summary">Debug Panel &#8212; Event Selection
+          <span class="sim-details-badge">not driver-facing · WIP</span>
+        </summary>
+        <div id="debug-section" class="debug-section"></div>
+      </details>
+
+      <details class="sim-details">
+        <summary class="sim-details-summary">Product Canon Guardrails</summary>
+        <div class="canon-guardrails sim-details-content">
+          <ul>
+            <li>RoadAhead is <strong>not</strong> a navigator.</li>
+            <li>RoadAhead is <strong>not</strong> an anti-radar.</li>
+            <li>RoadAhead is <strong>not</strong> a legal speed-limit authority.</li>
+            <li>RoadAhead is <strong>not</strong> safety-certified.</li>
+            <li>External road-event data is <strong>candidate input only</strong>, not verified RoadAhead truth.</li>
+            <li>Raw Datakam / OpenSpeedcam data is <strong>import / source material only</strong>.</li>
+            <li>Route providers may supply <strong>geometry only</strong>; provider non-geometry signals are not RoadAhead truth.</li>
+            <li><strong>No numeric tuning value is Product Canon</strong> at this stage.</li>
+            <li>Projection values and direction compatibility values shown in the debug panel are <strong>per-session derived data only</strong> — not persisted to base fixture files.</li>
+            <li>Direction compatibility shown is a <strong>WIP baseline (Slice 4.2)</strong> — candidate semantics only. Branch/ramp/parallel-carriageway ambiguity handling is deferred to later child issues.</li>
+            <li>Applicability reason codes (Slice 4.3) are <strong>per-session derived WIP debug data, not Product Canon</strong>. Full reason taxonomy is deferred to later child issues under Issue #48.</li>
+            <li>The debug accepted/suppressed grouping (Slice 4.4) reflects the simplified Slices 4.1–4.3 baseline only — <strong>debug visibility does not imply driver-facing eligibility</strong>.</li>
+            <li>Source direction fields (<code>source_direction_deg</code>, <code>source_dirtype</code>) are <strong>candidate metadata only</strong> — not verified truth. (event-applicability Canon truth 8)</li>
+          </ul>
+          <p class="authority-note">
+            <strong>Product Canon is the primary authority.</strong>
+            See <code>docs/product/areas/</code> in the repository.
+            This emulator is a WIP validation / QA tool.
+          </p>
+        </div>
+      </details>
+
+      <section class="wip-notice sim-debug-wip-notice">
+        <strong>Emulator debug / QA tool only &#8212; NOT the driver-facing UI.</strong>
         Not a navigator. Not an anti-radar. Not a legal speed-limit authority.
         Not safety-certified. All numeric values are WIP emulator defaults, not Product Canon.
-        Reason / status names shown in the debug panel are WIP / not Product Canon.
-        Uses <strong>synthetic fixtures only</strong> — no Yandex API, no provider, no network,
-        no account required.
+        Uses <strong>synthetic fixtures only</strong> &#8212; no provider, no network, no account required.
       </section>
 
-      <section class="upcoming-events-section" id="upcoming-events-strip">
-        <!-- populated by renderUpcomingEventsStrip() -->
-      </section>
-
-      <section class="map-section" id="map-section" aria-label="Route map — emulator spatial evaluation, debug only">
-        <h2>Route Map
-          <span class="wip-badge">web emulator debug / spatial evaluation — not driver-facing · not navigation · not Canon</span>
-        </h2>
-        <p class="map-disclaimer">
-          Map background: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors</a> (ODbL).
-          Used for web emulator spatial evaluation only. Not provider data. Not routing. Not navigation.
-          Vehicle marker position is projection-derived, per-session — not GPS, not Product Canon.
-        </p>
-        <div id="emulator-map" class="emulator-map" aria-label="Route map"></div>
-      </section>
-
-      <section class="route-import-section" id="route-import-section">
-        <!-- populated by renderRouteImportSection() -->
-      </section>
-
-      <section class="scenario-inspector-section" id="scenario-inspector">
-        <!-- populated by renderScenarioInspector() -->
-      </section>
-
-      <section class="evidence-snapshot-section" id="evidence-snapshot">
-        <!-- populated by renderEvidenceSnapshot() -->
-      </section>
-
-      <section class="debug-section" id="debug-section">
-        <!-- populated by render() -->
-      </section>
-
-      <section class="canon-guardrails">
-        <h2>Product Canon guardrails</h2>
-        <ul>
-          <li>RoadAhead is <strong>not</strong> a navigator.</li>
-          <li>RoadAhead is <strong>not</strong> an anti-radar.</li>
-          <li>RoadAhead is <strong>not</strong> a legal speed-limit authority.</li>
-          <li>RoadAhead is <strong>not</strong> safety-certified.</li>
-          <li>External road-event data is <strong>candidate input only</strong>, not verified RoadAhead truth.</li>
-          <li>Raw Datakam / OpenSpeedcam data is <strong>import / source material only</strong>.</li>
-          <li>Route providers may supply <strong>geometry only</strong>; provider non-geometry signals are not RoadAhead truth.</li>
-          <li><strong>No numeric tuning value is Product Canon</strong> at this stage.</li>
-          <li>Projection values and direction compatibility values shown in the debug panel are <strong>per-session derived data only</strong> — not persisted to base fixture files.</li>
-          <li>Direction compatibility shown is a <strong>WIP baseline (Slice 4.2)</strong> — candidate semantics only. Branch/ramp/parallel-carriageway ambiguity handling is deferred to later child issues.</li>
-          <li>Applicability reason codes (Slice 4.3) are <strong>per-session derived WIP debug data, not Product Canon</strong>. Full reason taxonomy is deferred to later child issues under Issue #48.</li>
-          <li>The debug accepted/suppressed grouping (Slice 4.4) reflects the simplified Slices 4.1–4.3 baseline only — <strong>debug visibility does not imply driver-facing eligibility</strong>.</li>
-          <li>Source direction fields (<code>source_direction_deg</code>, <code>source_dirtype</code>) are <strong>candidate metadata only</strong> — not verified truth. (event-applicability Canon truth 8)</li>
-        </ul>
-        <p class="authority-note">
-          <strong>Product Canon is the primary authority.</strong>
-          See <code>docs/product/areas/</code> in the repository.
-          This emulator is a WIP validation / QA tool.
-        </p>
-      </section>
-    </main>
+    </div>
   `;
+
+  // Cache the initial route length for route-length-based playback (Issue #91 fixes).
+  updateActiveRouteLength();
 
   attachControls();
   render();
@@ -609,20 +655,33 @@ function buildApp(): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Advance progress on each animation frame while playing.
- * Uses delta time to keep advancement rate constant regardless of frame rate.
+ * Advance route progress on each animation frame while playing.
+ *
+ * Uses route-length-based progression (Issue #91 fixes):
+ *   progress_delta_pct =
+ *     (currentSpeedKmh × playbackMultiplier × deltaSeconds / 3600) / routeLengthKm × 100
+ *
+ * Falls back to a minimal 0.1% / s advance if activeRouteLengthKm is zero
+ * (degenerate route) to prevent a divide-by-zero stuck state.
+ *
+ * Delta time keeps advancement physically consistent regardless of frame rate.
+ *
+ * WIP emulator only — NOT navigation, NOT ETA, NOT routing, NOT Product Canon.
  */
 function tickPlayback(timestamp: DOMHighResTimeStamp): void {
   if (!isPlaying) return;
 
   if (playbackLastTimestamp !== 0) {
     const deltaSeconds = (timestamp - playbackLastTimestamp) / 1000;
-    routeProgressPct = Math.min(
-      100,
-      routeProgressPct + PLAYBACK_SPEED_PCT_PER_SEC * deltaSeconds
-    );
 
-    // Sync the progress slider DOM value so it stays in sync with playback.
+    // Route-length-based progression: physical speed × multiplier → % advance.
+    const routeLengthKm = activeRouteLengthKm > 0 ? activeRouteLengthKm : 1;
+    const progressDeltaPct =
+      (currentSpeedKmh * playbackMultiplier * deltaSeconds) / 3600 / routeLengthKm * 100;
+
+    routeProgressPct = Math.min(100, routeProgressPct + progressDeltaPct);
+
+    // Sync the progress slider DOM value (integer snap for slider thumb).
     const slider = document.getElementById(
       "progress-slider"
     ) as HTMLInputElement | null;
@@ -714,7 +773,8 @@ function attachControls(): void {
   speedInputEl?.addEventListener("change", () => {
     const val = parseInt(speedInputEl.value, 10);
     if (!isNaN(val)) {
-      pausePlayback();
+      // Fix 3 (Issue #91): do NOT pause playback on speed change.
+      // Playback continues with the updated currentSpeedKmh.
       clearSelectedScenario();
       currentSpeedKmh = clampSpeed(val);
       speedInputEl.value = String(currentSpeedKmh);
@@ -739,6 +799,27 @@ function attachControls(): void {
   document
     .getElementById("playback-btn")
     ?.addEventListener("click", togglePlayback);
+
+  // ── Quick Load Rostov1 button in the top control bar (Issue #91) ─────────
+  // Mirrors the full route import section button in the collapsible debug area.
+  // Calls loadRostov1Route() directly — no separate route import logic needed.
+  document
+    .getElementById("topbar-rostov1-btn")
+    ?.addEventListener("click", loadRostov1Route);
+
+  // ── Playback multiplier selector (Issue #91 fixes) ────────────────────────
+  // Updates playbackMultiplier immediately; running playback picks up the new
+  // value on the next tickPlayback() call without restart.
+  // WIP emulator control — NOT navigation, NOT ETA, NOT Product Canon.
+  const multiplierSelectEl = document.getElementById(
+    "playback-multiplier-select"
+  ) as HTMLSelectElement | null;
+  multiplierSelectEl?.addEventListener("change", () => {
+    const val = parseInt(multiplierSelectEl.value, 10);
+    if (!isNaN(val) && val > 0) {
+      playbackMultiplier = val;
+    }
+  });
 
   // ── Scenario selector (Issue #70) ──────────────────────────────────────
   // Selecting a scenario applies routeProgressFraction and speedKmh from
@@ -904,7 +985,9 @@ function clampSpeed(v: number): number {
 }
 
 function adjustSpeed(delta: number): void {
-  pausePlayback();
+  // Fix 3 (Issue #91): do NOT pause playback on speed change.
+  // Playback continues at the new speed immediately (route-length-based delta
+  // uses currentSpeedKmh on every tick, so the change takes effect instantly).
   clearSelectedScenario();
   currentSpeedKmh = clampSpeed(currentSpeedKmh + delta);
   const el = document.getElementById("speed-input") as HTMLInputElement | null;
@@ -942,23 +1025,82 @@ function render(): void {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Route length computation (Issue #91 fixes — route-length-based playback)
+//
+// Haversine arc-length is used to convert physical speed + multiplier into
+// a route-progress delta. This is a WIP emulator approximation — it does not
+// account for road curvature beyond the route waypoints, elevation, or any
+// real-world navigation semantics. NOT Product Canon.
+// ---------------------------------------------------------------------------
+
+/**
+ * Haversine distance in kilometres between two WGS84 coordinate pairs.
+ * WIP emulator utility. NOT navigation. NOT routing. NOT Product Canon.
+ */
+function haversineKm(
+  lat1: number, lon1: number,
+  lat2: number, lon2: number
+): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Compute the total arc-length of a RouteGeometry in kilometres.
+ *
+ * Sums haversine segment distances across all consecutive waypoint pairs.
+ * Returns 0 for routes with fewer than 2 waypoints.
+ *
+ * WIP emulator utility — NOT navigation, NOT routing, NOT Product Canon.
+ */
+function computeRouteLengthKm(route: typeof activeRoute): number {
+  const coords = route.coordinates;
+  if (coords.length < 2) return 0;
+  let total = 0;
+  for (let i = 1; i < coords.length; i++) {
+    const [lon1, lat1] = coords[i - 1];
+    const [lon2, lat2] = coords[i];
+    total += haversineKm(lat1, lon1, lat2, lon2);
+  }
+  return total;
+}
+
+/**
+ * Cache the arc-length of the current activeRoute in activeRouteLengthKm.
+ * Called after activeRoute is updated and in buildApp() on first load.
+ * WIP emulator — NOT Product Canon.
+ */
+function updateActiveRouteLength(): void {
+  activeRouteLengthKm = computeRouteLengthKm(activeRoute);
+}
+
 /**
  * Update the map route polyline and reset the vehicle marker when the active
  * route changes (GeoJSON import, Rostov1 load, or synthetic reset).
  *
  * Called after activeRoute is updated, before render().
- * Wraps setMapRoute() so the call site in event handlers stays minimal.
+ * Also refreshes the cached activeRouteLengthKm for playback progression.
  *
  * Issue #88 / Stage 2 — geometry display only, not provider truth.
+ * Issue #91 fixes — route length cache update.
  * NOT Product Canon.
  */
 function syncMapRoute(): void {
   setMapRoute(activeRoute);
+  updateActiveRouteLength();
 }
 
 function updateProgressDisplay(): void {
   const el = document.getElementById("progress-display");
-  if (el) el.textContent = `${routeProgressPct}%`;
+  if (el) el.textContent = `${routeProgressPct.toFixed(1)}%`;
 }
 
 // ---------------------------------------------------------------------------
