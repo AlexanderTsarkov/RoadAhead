@@ -277,26 +277,50 @@ export function parseRouteEventDataset(raw: unknown): RouteEventDataset {
     throw new Error("Route event dataset: summary must be an object");
   }
   const summaryObj = rawSummary as Record<string, unknown>;
+
+  /** Validate a summary count field: finite number >= 0. */
+  function requireSummaryCount(field: string, value: unknown): number {
+    if (typeof value !== "number" || !isFinite(value) || value < 0) {
+      throw new Error(
+        `Route event dataset: summary.${field} must be a finite number >= 0, got ${String(value)}`
+      );
+    }
+    return value;
+  }
+
+  const rawByType = summaryObj["by_type"];
+  if (typeof rawByType !== "object" || rawByType === null) {
+    throw new Error("Route event dataset: summary.by_type must be an object");
+  }
+  const bt = rawByType as Record<string, unknown>;
+
   const summary: RouteEventDatasetSummary = {
-    raw_rows_scanned: Number(summaryObj["raw_rows_scanned"] ?? 0),
-    selected_events: Number(summaryObj["selected_events"] ?? 0),
-    skipped_invalid: Number(summaryObj["skipped_invalid"] ?? 0),
-    skipped_outside_corridor: Number(summaryObj["skipped_outside_corridor"] ?? 0),
+    raw_rows_scanned: requireSummaryCount(
+      "raw_rows_scanned",
+      summaryObj["raw_rows_scanned"]
+    ),
+    selected_events: requireSummaryCount(
+      "selected_events",
+      summaryObj["selected_events"]
+    ),
+    skipped_invalid: requireSummaryCount(
+      "skipped_invalid",
+      summaryObj["skipped_invalid"]
+    ),
+    skipped_outside_corridor: requireSummaryCount(
+      "skipped_outside_corridor",
+      summaryObj["skipped_outside_corridor"]
+    ),
     by_type: {
-      speed_limit: 0,
-      static_camera: 0,
-      road_bump: 0,
-      unknown: 0,
+      speed_limit: requireSummaryCount("by_type.speed_limit", bt["speed_limit"]),
+      static_camera: requireSummaryCount(
+        "by_type.static_camera",
+        bt["static_camera"]
+      ),
+      road_bump: requireSummaryCount("by_type.road_bump", bt["road_bump"]),
+      unknown: requireSummaryCount("by_type.unknown", bt["unknown"]),
     },
   };
-  const rawByType = summaryObj["by_type"];
-  if (typeof rawByType === "object" && rawByType !== null) {
-    const bt = rawByType as Record<string, unknown>;
-    summary.by_type.speed_limit = Number(bt["speed_limit"] ?? 0);
-    summary.by_type.static_camera = Number(bt["static_camera"] ?? 0);
-    summary.by_type.road_bump = Number(bt["road_bump"] ?? 0);
-    summary.by_type.unknown = Number(bt["unknown"] ?? 0);
-  }
 
   const rawEvents = obj["events"];
   if (!Array.isArray(rawEvents)) {
@@ -333,11 +357,11 @@ export function parseRouteEventDataset(raw: unknown): RouteEventDataset {
         );
       }
 
+      const tag = `Route event dataset events[${i}] (id="${id}")`;
+
       const rawType = e["raw_type"];
-      if (typeof rawType !== "number") {
-        throw new Error(
-          `Route event dataset events[${i}] (id="${id}"): raw_type must be a number`
-        );
+      if (typeof rawType !== "number" || !isFinite(rawType)) {
+        throw new Error(`${tag}: raw_type must be a finite number`);
       }
 
       const type = e["type"];
@@ -348,30 +372,89 @@ export function parseRouteEventDataset(raw: unknown): RouteEventDataset {
         type !== "unknown"
       ) {
         throw new Error(
-          `Route event dataset events[${i}] (id="${id}"): type must be one of ` +
+          `${tag}: type must be one of ` +
             `speed_limit | static_camera | road_bump | unknown, got "${String(type)}"`
         );
       }
 
       const lon = e["lon"];
       if (typeof lon !== "number" || !isFinite(lon)) {
-        throw new Error(
-          `Route event dataset events[${i}] (id="${id}"): lon must be a finite number`
-        );
+        throw new Error(`${tag}: lon must be a finite number`);
+      }
+      if (lon < -180 || lon > 180) {
+        throw new Error(`${tag}: lon out of range [-180, 180]: ${lon}`);
       }
 
       const lat = e["lat"];
       if (typeof lat !== "number" || !isFinite(lat)) {
+        throw new Error(`${tag}: lat must be a finite number`);
+      }
+      if (lat < -90 || lat > 90) {
+        throw new Error(`${tag}: lat out of range [-90, 90]: ${lat}`);
+      }
+
+      // speed_kmh: null or a finite positive number.
+      const rawSpeedKmh = e["speed_kmh"];
+      let speedKmh: number | null;
+      if (rawSpeedKmh === null || rawSpeedKmh === undefined) {
+        speedKmh = null;
+      } else if (typeof rawSpeedKmh !== "number" || !isFinite(rawSpeedKmh)) {
         throw new Error(
-          `Route event dataset events[${i}] (id="${id}"): lat must be a finite number`
+          `${tag}: speed_kmh must be null or a finite number, got ${String(rawSpeedKmh)}`
+        );
+      } else if (rawSpeedKmh <= 0) {
+        throw new Error(
+          `${tag}: speed_kmh must be positive when present, got ${rawSpeedKmh}`
+        );
+      } else {
+        speedKmh = rawSpeedKmh;
+      }
+
+      // dirtype: finite integer.
+      const rawDirtype = e["dirtype"];
+      if (typeof rawDirtype !== "number" || !isFinite(rawDirtype)) {
+        throw new Error(
+          `${tag}: dirtype must be a finite number, got ${String(rawDirtype)}`
         );
       }
 
-      const speedKmh = e["speed_kmh"];
-      const dirtype = e["dirtype"];
-      const directionDeg = e["direction_deg"];
-      const distanceToRouteM = e["distance_to_route_m"];
-      const projectedRouteDistanceM = e["projected_route_distance_m"];
+      // direction_deg: finite, 0 <= direction_deg <= 360.
+      // 360 is accepted (equal to 0 / north) to match source data conventions.
+      const rawDirectionDeg = e["direction_deg"];
+      if (typeof rawDirectionDeg !== "number" || !isFinite(rawDirectionDeg)) {
+        throw new Error(
+          `${tag}: direction_deg must be a finite number, got ${String(rawDirectionDeg)}`
+        );
+      }
+      if (rawDirectionDeg < 0 || rawDirectionDeg > 360) {
+        throw new Error(
+          `${tag}: direction_deg out of range [0, 360]: ${rawDirectionDeg}`
+        );
+      }
+
+      // distance_to_route_m: finite, >= 0.
+      const rawDistanceToRouteM = e["distance_to_route_m"];
+      if (
+        typeof rawDistanceToRouteM !== "number" ||
+        !isFinite(rawDistanceToRouteM) ||
+        rawDistanceToRouteM < 0
+      ) {
+        throw new Error(
+          `${tag}: distance_to_route_m must be a finite number >= 0, got ${String(rawDistanceToRouteM)}`
+        );
+      }
+
+      // projected_route_distance_m: finite, >= 0.
+      const rawProjectedRouteDistanceM = e["projected_route_distance_m"];
+      if (
+        typeof rawProjectedRouteDistanceM !== "number" ||
+        !isFinite(rawProjectedRouteDistanceM) ||
+        rawProjectedRouteDistanceM < 0
+      ) {
+        throw new Error(
+          `${tag}: projected_route_distance_m must be a finite number >= 0, got ${String(rawProjectedRouteDistanceM)}`
+        );
+      }
 
       return {
         id,
@@ -381,16 +464,11 @@ export function parseRouteEventDataset(raw: unknown): RouteEventDataset {
         type: type as RouteEventNormalizedType,
         lon,
         lat,
-        speed_kmh:
-          typeof speedKmh === "number" && speedKmh > 0 ? speedKmh : null,
-        dirtype: typeof dirtype === "number" ? dirtype : 0,
-        direction_deg: typeof directionDeg === "number" ? directionDeg : 0,
-        distance_to_route_m:
-          typeof distanceToRouteM === "number" ? distanceToRouteM : 0,
-        projected_route_distance_m:
-          typeof projectedRouteDistanceM === "number"
-            ? projectedRouteDistanceM
-            : 0,
+        speed_kmh: speedKmh,
+        dirtype: rawDirtype,
+        direction_deg: rawDirectionDeg,
+        distance_to_route_m: rawDistanceToRouteM,
+        projected_route_distance_m: rawProjectedRouteDistanceM,
       };
     }
   );

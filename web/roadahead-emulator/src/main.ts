@@ -577,18 +577,19 @@ function loadRouteFromRegistry(entry: RouteRegistryEntry): void {
 }
 
 /**
- * True when a fetch response indicates the prepared events file is absent.
+ * True when an OK (2xx) prepared-events response body looks like a missing
+ * file rather than a real dataset. Covers the Vite dev-server SPA HTML
+ * fallback (200 + index.html) and empty responses.
  *
- * Covers HTTP 404, empty body, and dev-server SPA HTML fallback (Vite often
- * returns index.html with 200 for missing public assets — not a real dataset).
+ * Only called after confirming resp.ok — non-OK responses are classified
+ * before this check so a 500/403 HTML error page is never marked "not prepared".
  *
  * WIP — NOT Product Canon. Stage 2 / Issue #93.
  */
-function isPreparedEventsDatasetMissing(
+function isPreparedEventsOkBodyMissing(
   resp: Response,
   bodyText: string
 ): boolean {
-  if (resp.status === 404) return true;
   const trimmed = bodyText.trim();
   if (trimmed.length === 0) return true;
   const contentType = (resp.headers.get("content-type") ?? "").toLowerCase();
@@ -620,10 +621,13 @@ function setPreparedEventsNotPrepared(
  * Called by loadRouteFromRegistry() after geometry loads successfully.
  * Route still functions if the dataset is missing or fails to validate.
  *
- * Missing vs invalid:
- *   - Missing (404, empty body, HTML SPA fallback): { kind: "not_prepared" }
- *   - Invalid (bad JSON, schema/route_id validation): { kind: "error", message }
- *   - Success: { kind: "loaded", dataset }
+ * HTTP status classification (evaluated in order):
+ *   1. 404              → not_prepared  (file not deployed yet — normal Stage 2)
+ *   2. non-OK (non-404) → dataset error (server error, auth failure, etc.)
+ *   3. OK + empty/HTML  → not_prepared  (Vite SPA fallback for missing asset)
+ *   4. OK + non-JSON    → dataset error
+ *   5. OK + bad schema  → dataset error
+ *   6. OK + valid       → loaded
  *
  * Route geometry remains loaded in all cases.
  *
@@ -637,22 +641,35 @@ function loadPreparedEventsForRoute(
   fetch(eventsUrl)
     .then(async (resp) => {
       if (!isRouteLoadCurrent(loadToken)) return null;
-      const bodyText = await resp.text();
-      if (!isRouteLoadCurrent(loadToken)) return null;
 
-      if (isPreparedEventsDatasetMissing(resp, bodyText)) {
-        const reason =
-          resp.status === 404 ? "HTTP 404" : "file not found or empty response";
-        setPreparedEventsNotPrepared(reason, eventsUrl, loadToken);
+      // Step 1: 404 → not prepared (before reading body).
+      if (resp.status === 404) {
+        setPreparedEventsNotPrepared("HTTP 404", eventsUrl, loadToken);
         return null;
       }
 
+      // Step 2: non-OK (and not 404) → dataset error.
       if (!resp.ok) {
         throw new Error(
           `Prepared events fetch failed: HTTP ${resp.status} (${eventsUrl})`
         );
       }
 
+      // Step 3+: read body for OK responses.
+      const bodyText = await resp.text();
+      if (!isRouteLoadCurrent(loadToken)) return null;
+
+      // Step 3: OK but SPA fallback / empty → not prepared.
+      if (isPreparedEventsOkBodyMissing(resp, bodyText)) {
+        setPreparedEventsNotPrepared(
+          "file not found (SPA/empty response)",
+          eventsUrl,
+          loadToken
+        );
+        return null;
+      }
+
+      // Step 4: parse JSON.
       let parsed: unknown;
       try {
         parsed = JSON.parse(bodyText) as unknown;
@@ -670,12 +687,14 @@ function loadPreparedEventsForRoute(
     .then((parsed) => {
       if (!isRouteLoadCurrent(loadToken) || parsed === null) return;
       if (activeRegistryRouteId !== routeId) return;
+      // Step 5: schema + route_id validation.
       try {
         const dataset = parseRouteEventDataset(parsed);
         validateRouteEventDatasetRouteId(dataset, routeId);
         if (!isRouteLoadCurrent(loadToken) || activeRegistryRouteId !== routeId) {
           return;
         }
+        // Step 6: success.
         routeEventsState = { kind: "loaded", dataset };
         render();
       } catch (e) {
