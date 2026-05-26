@@ -1663,3 +1663,44 @@ code {
   font-style: italic;
   line-height: 1.5;
 }
+
+/* Known-route loader row (Issue #87 / Stage 2 route file intake) */
+.route-import-known-routes {
+  margin-top: 0.2rem;
+}
+
+.route-import-known-label {
+  font-size: 0.8rem;
+  color: #3a3000;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.load-known-route-btn {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #fff;
+  background: #1a5c2a;
+  border: none;
+  border-radius: 4px;
+  padding: 0.28rem 0.65rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.load-known-route-btn:hover {
+  background: #124a1e;
+}
+
+.load-known-route-btn.route-btn-active {
+  background: #0f3a18;
+  outline: 2px solid #4caf50;
+  outline-offset: 1px;
+}
+
+.route-import-known-note {
+  font-size: 0.72rem;
+  color: #888;
+  font-style: italic;
+}
