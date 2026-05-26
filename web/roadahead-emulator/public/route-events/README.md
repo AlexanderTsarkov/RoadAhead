@@ -35,8 +35,17 @@ npm run prepare:route-events -- \
 The raw file path must exist locally (gitignored). The output file can then be
 committed if explicitly approved.
 
-## Stage 2 / Issue #93
+## Stage 2 / Issue #93 + #95
 
 This directory was created as part of the route registry + prepared event dataset
 baseline (Stage 2 / Issue #93). See the route registry at
 `public/routes/route-registry.json` for configured routes.
+
+Issue #95 centralized the Datakam/OpenSpeedcam TYPE mapping. Prepared datasets
+generated after #95 include a `source_type_label` field on each event, preserving
+the source-level type label (e.g. `dangerous_turn`, `speed_bump`) alongside the
+emulator normalized type.
+
+See `docs/research/datakam-openspeedcam-type-mapping.md` for the canonical TYPE
+mapping, QA observations, and DIRECTION semantics notes. The machine-readable
+mapping is at `data/config/datakam-type-mapping.json`.

@@ -1,0 +1,81 @@
+{
+  "_comment": "Canonical Datakam/OpenSpeedcam TYPE code mapping — Stage 2 WIP source mapping. NOT Product Canon.",
+  "_doc": "See docs/research/datakam-openspeedcam-type-mapping.md for full rationale, QA observations, and data policy.",
+  "_policy": "This mapping is trusted for Stage 2 emulator work because it was previously implemented and manually checked in the Datakam QA viewer (web/datakam-viewer). It is not Product Canon, not legal truth, and not safety-certified data.",
+  "entries": [
+    {
+      "raw_type": 1,
+      "source_label": "static_camera",
+      "normalized_type": "static_camera",
+      "notes": "Fixed point speed/enforcement camera. Observed in Rostov1 evaluation data."
+    },
+    {
+      "raw_type": 2,
+      "source_label": "traffic_light_camera",
+      "normalized_type": "static_camera",
+      "notes": "Traffic-light camera. Normalized to static_camera for emulator POC V1 scope."
+    },
+    {
+      "raw_type": 3,
+      "source_label": "red_light_camera",
+      "normalized_type": "static_camera",
+      "notes": "Red-light camera. Normalized to static_camera for emulator POC V1 scope. Observed in Rostov1 evaluation data."
+    },
+    {
+      "raw_type": 4,
+      "source_label": "average_speed_camera",
+      "normalized_type": "static_camera",
+      "notes": "Average-speed (section) camera. Normalized to static_camera for emulator POC V1 scope."
+    },
+    {
+      "raw_type": 5,
+      "source_label": "mobile_camera",
+      "normalized_type": "static_camera",
+      "notes": "Mobile speed camera. Normalized to static_camera for emulator POC V1 scope."
+    },
+    {
+      "raw_type": 100,
+      "source_label": "pedestrian_crossing",
+      "normalized_type": "road_bump",
+      "notes": "Pedestrian crossing. Normalized to road_bump (hazard category) for emulator POC V1 scope. Observed in Rostov1 evaluation data."
+    },
+    {
+      "raw_type": 101,
+      "source_label": "speed_limit",
+      "normalized_type": "speed_limit",
+      "notes": "Speed-regime / speed-limit sign. In manually inspected examples this type includes both ordinary speed-limit signs and settlement signs that imply a default speed regime (e.g. 60 km/h). Treat as a speed-regime candidate, not necessarily a literal standalone speed-limit sign. Observed in Rostov1 evaluation data."
+    },
+    {
+      "raw_type": 102,
+      "source_label": "speed_bump",
+      "normalized_type": "road_bump",
+      "notes": "Speed bump / road bump. Bidirectional rows (DIRTYPE=2) are expected and appear correct — bumps span the road. Multiple rows may share the same coordinates. Observed in Rostov1 evaluation data."
+    },
+    {
+      "raw_type": 103,
+      "source_label": "bad_road",
+      "normalized_type": "road_bump",
+      "notes": "Bad road / road surface hazard. Normalized to road_bump (hazard category) for emulator POC V1 scope. Observed in Rostov1 evaluation data."
+    },
+    {
+      "raw_type": 104,
+      "source_label": "dangerous_turn",
+      "normalized_type": "road_bump",
+      "notes": "Dangerous turn / curve. Normalized to road_bump (hazard category) for emulator POC V1 scope. Observed in Rostov1 evaluation data."
+    },
+    {
+      "raw_type": 105,
+      "source_label": "dangerous_intersection",
+      "normalized_type": "road_bump",
+      "notes": "Dangerous intersection. Normalized to road_bump (hazard category) for emulator POC V1 scope."
+    },
+    {
+      "raw_type": 106,
+      "source_label": "other_danger",
+      "normalized_type": "road_bump",
+      "notes": "Other danger / hazard. In at least one manual QA observation this type appeared as a railway crossing. Source label other_danger is preserved; railway crossing is a documented observed subtype/example. Observed in Rostov1 evaluation data."
+    }
+  ],
+  "direction_semantics_note": "DIRECTION often appears to represent sign/camera facing direction rather than vehicle travel direction. Candidate vehicle travel direction may be approximately (DIRECTION + 180) mod 360, but this remains WIP source-semantics evidence, not Canon.",
+  "raw_data_policy": "Raw speedcam.txt files remain local and gitignored. Prepared bounded route-scoped outputs (e.g. Rostov1.events.json) may be committed only when explicitly approved and confirmed to contain no raw source rows."
+}
