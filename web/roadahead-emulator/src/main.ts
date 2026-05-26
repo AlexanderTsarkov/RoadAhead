@@ -577,9 +577,9 @@ function loadRouteRegistry(): void {
 function loadRouteFromRegistry(entry: RouteRegistryEntry): void {
   const loadToken = beginRouteLoad();
   routeImportError = null;
-  // Clear stale event markers immediately on route change (Issue #97 / Stage 2).
-  preparedEventVisibleLabels = new Set();
-  clearEventMarkers();
+  // Do NOT clear event markers here — if the geometry fetch fails, the previous
+  // route's markers and filter state must remain visible (Issue #97 Codex fix).
+  // Markers/filter are cleared only after the new geometry is accepted below.
   render();
 
   fetch(entry.route_geometry_url)
@@ -595,6 +595,13 @@ function loadRouteFromRegistry(entry: RouteRegistryEntry): void {
     .then((parsed) => {
       if (!isRouteLoadCurrent(loadToken) || parsed === null) return;
       const imported = parseUserGeoJsonRoute(parsed, entry.name);
+
+      // Geometry accepted — now safe to clear previous event markers and filter.
+      // Previous markers must remain visible until the new geometry is confirmed.
+      // (Issue #97 Codex fix: clear only on geometry acceptance, not at load start.)
+      preparedEventVisibleLabels = new Set();
+      clearEventMarkers();
+
       activeRoute = imported;
       activeRouteSource = { kind: "geojson", filename: entry.name };
       routeImportError = null;
