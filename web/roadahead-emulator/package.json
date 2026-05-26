@@ -11,7 +11,11 @@
     "scenario:sweep": "npm run build:scenarios && node dist-scripts/emulator/scenarios/runScenarioSweep.js"
   },
   "devDependencies": {
+    "@types/leaflet": "^1.9.21",
     "typescript": "^5.4.5",
     "vite": "^5.4.0"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4"
   }
 }
