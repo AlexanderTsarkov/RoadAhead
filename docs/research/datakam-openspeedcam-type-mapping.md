@@ -55,6 +55,31 @@ The `source_type_label` field in each prepared event record preserves the source
 
 ---
 
+## Display and debug rule for source_type_label
+
+Because several Datakam/OpenSpeedcam source labels collapse into the same broader RoadAhead/emulator normalized category (for example `speed_bump`, `bad_road`, `dangerous_turn`, and `other_danger` all normalize to `road_bump`), displaying only the normalized `type` would hide the source-specific meaning.
+
+**Rule: `source_type_label` is the primary human-readable label for prepared Datakam/OpenSpeedcam events.**
+
+All map markers, popups, legends, and debug tables that display Datakam/OpenSpeedcam prepared events must follow this display order:
+
+1. `source_type_label` — primary label; shows the source-specific meaning (e.g. `dangerous_turn`, `speed_bump`, `other_danger`)
+2. `raw_type` — raw integer code from the CSV; always visible for debugging
+3. normalized `type` — coarse RoadAhead/emulator category (`road_bump`, `static_camera`, `speed_limit`, `unknown`); shown as context, not as the primary label
+
+**Example:** an event with `raw_type=104`, `source_type_label="dangerous_turn"`, `type="road_bump"` must be labeled in debug UI as `dangerous_turn (raw: 104, norm: road_bump)` — not simply `road_bump`.
+
+**Example:** an event with `raw_type=106`, `source_type_label="other_danger"`, `type="road_bump"` must show `other_danger (raw: 106, norm: road_bump)` — not `road_bump`, which would erase the railway-crossing evidence.
+
+This rule applies to:
+- future emulator map marker popups (when markers are added in a later stage)
+- debug tables in the Route/Data panel or event inspector
+- any export or snapshot that lists prepared events
+
+This rule does **not** change applicability, suppression, or driver-facing display logic — the normalized `type` remains the field used for those decisions. The display rule is for operator/QA visibility only.
+
+---
+
 ## Owner / manual QA observations
 
 These are manual observations from earlier QA work on Datakam candidate data along the Yaroslavl–Moscow and Rostov corridors. They are source-level WIP evidence, not Canon.

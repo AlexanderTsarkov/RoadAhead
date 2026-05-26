@@ -122,9 +122,21 @@ export interface RouteEvent {
 
   /**
    * Source-level type label string from the Datakam/OpenSpeedcam TYPE mapping.
-   * Preserves source-level distinction even when multiple raw types share the
-   * same normalized emulator category (e.g. "dangerous_turn" vs "speed_bump"
-   * both map to "road_bump").
+   *
+   * This field is REQUIRED for preserving Datakam/OpenSpeedcam source semantics.
+   * Several source labels collapse into the same normalized emulator category:
+   *   speed_bump, bad_road, dangerous_turn, other_danger → "road_bump"
+   *   static_camera, traffic_light_camera, red_light_camera,
+   *   average_speed_camera, mobile_camera  → "static_camera"
+   *
+   * Display/debug rule (see docs/research/datakam-openspeedcam-type-mapping.md):
+   *   Future map markers, popups, legends, and debug tables must display
+   *   source_type_label FIRST as the primary human-readable label, followed by
+   *   raw_type for debugging, and normalized type as coarse context only.
+   *   Example: "dangerous_turn (raw: 104, norm: road_bump)"
+   *   Do NOT label an event merely as "road_bump" when source_type_label is
+   *   "dangerous_turn" or "other_danger" — this would hide source semantics.
+   *
    * "unknown" when raw_type is not in the WIP mapping table.
    * WIP — not Product Canon.
    * (event-data Canon truth 8)
