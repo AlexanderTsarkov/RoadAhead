@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "routes": [
+    {
+      "id": "rostov1",
+      "name": "Rostov1",
+      "description": "Owner-known Stage 2 evaluation route",
+      "route_geometry_url": "./routes/Rostov1.geojson",
+      "prepared_events_url": "./route-events/Rostov1.events.json",
+      "default_playback_multiplier": 100,
+      "status": "active"
+    }
+  ]
+}
