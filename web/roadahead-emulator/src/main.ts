@@ -315,6 +315,75 @@ function resetToSyntheticRoute(): void {
 }
 
 // ---------------------------------------------------------------------------
+// Rostov1 known-route loader (Issue #87 / Stage 2 route file intake)
+//
+// Loads the owner-provided Rostov1.geojson static asset bundled at
+// public/routes/Rostov1.geojson (served as /routes/Rostov1.geojson).
+//
+// The file is a GeoJSON FeatureCollection containing one Feature with
+// LineString geometry. Coordinates are [longitude, latitude] (WGS84,
+// longitude-first). Parsed and normalized via parseUserGeoJsonRoute(),
+// which handles FeatureCollection → first LineString feature extraction.
+//
+// Source file path (gitignored raw input):
+//   data/raw/routes/Rostov1.geojson
+// Bundled static asset path (tracked, served by Vite):
+//   web/roadahead-emulator/public/routes/Rostov1.geojson
+//
+// Route geometry only — no event import, no speed limits, no provider data.
+// NOT navigation. NOT routing. NOT Product Canon. NOT driver-facing UI.
+// WIP — NOT Product Canon. (Issue #87 / Stage 2 known-route emulator)
+// ---------------------------------------------------------------------------
+
+/** Name used to identify the Rostov1 asset in provenance and UI. */
+const ROSTOV1_ASSET_NAME = "Rostov1.geojson";
+
+/** Path to the Rostov1 static asset, relative to the Vite public root. */
+const ROSTOV1_ASSET_PATH = "./routes/Rostov1.geojson";
+
+/**
+ * Load the Rostov1 owner-provided route from the bundled static asset.
+ *
+ * Fetches /routes/Rostov1.geojson, parses as GeoJSON, and normalizes it
+ * via parseUserGeoJsonRoute(). On success: sets activeRoute, clears error,
+ * resets progress, clears scenario selection, pauses playback, and renders.
+ * On any failure: sets routeImportError without modifying the active route.
+ *
+ * Route geometry only — not event data, not speed limits, not provider data.
+ * NOT navigation. NOT routing. NOT Product Canon. NOT driver-facing UI.
+ * WIP — NOT Product Canon. (Issue #87 / Stage 2 known-route emulator)
+ */
+function loadRostov1Route(): void {
+  fetch(ROSTOV1_ASSET_PATH)
+    .then((resp) => {
+      if (!resp.ok) {
+        throw new Error(
+          `Failed to fetch ${ROSTOV1_ASSET_NAME}: HTTP ${resp.status}`
+        );
+      }
+      return resp.json() as Promise<unknown>;
+    })
+    .then((parsed) => {
+      const imported = parseUserGeoJsonRoute(parsed, ROSTOV1_ASSET_NAME);
+      activeRoute = imported;
+      activeRouteSource = { kind: "geojson", filename: ROSTOV1_ASSET_NAME };
+      routeImportError = null;
+      pausePlayback();
+      clearSelectedScenario();
+      routeProgressPct = 0;
+      const slider = document.getElementById(
+        "progress-slider"
+      ) as HTMLInputElement | null;
+      if (slider) slider.value = "0";
+      render();
+    })
+    .catch((e: unknown) => {
+      routeImportError = e instanceof Error ? e.message : String(e);
+      render();
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Scenario selector helpers (Issue #70)
 // ---------------------------------------------------------------------------
 
@@ -800,6 +869,12 @@ function attachRouteImportListeners(section: HTMLElement): void {
     "#reset-to-synthetic-btn"
   );
   resetBtn?.addEventListener("click", handleResetToSyntheticRouteClick);
+
+  // Rostov1 known-route loader button (Issue #87 / Stage 2 route file intake).
+  const rostov1Btn = section.querySelector<HTMLButtonElement>(
+    "#load-rostov1-btn"
+  );
+  rostov1Btn?.addEventListener("click", loadRostov1Route);
 }
 
 function clampSpeed(v: number): number {
@@ -1622,6 +1697,12 @@ function renderRouteImportSection(): void {
 
   const resetDisabled = activeRouteSource.kind === "synthetic" ? " disabled" : "";
 
+  const rostov1ActiveClass =
+    activeRouteSource.kind === "geojson" &&
+    activeRouteSource.filename === ROSTOV1_ASSET_NAME
+      ? " route-btn-active"
+      : "";
+
   section.innerHTML = `
     <h2>Route Geometry Import
       <span class="wip-badge">local file · geometry only · not routing · not navigation · not Canon</span>
@@ -1647,6 +1728,16 @@ function renderRouteImportSection(): void {
         class="reset-synthetic-btn"${resetDisabled}
       >Reset to synthetic route</button>
     </div>
+    <div class="route-import-controls route-import-known-routes">
+      <span class="route-import-known-label">Owner-provided known routes:</span>
+      <button
+        id="load-rostov1-btn"
+        type="button"
+        class="load-known-route-btn${rostov1ActiveClass}"
+        title="Load Rostov1 owner-provided route (FeatureCollection, LineString, 52 waypoints, lon-first WGS84) — geometry only, not provider data"
+      >Load Rostov1 route</button>
+      <span class="route-import-known-note">WIP · geometry only · not routing · not navigation</span>
+    </div>
     <div class="route-source-row">
       <span class="route-source-label-text">Active route source:</span>
       <span class="route-source-value" id="route-source-value">${sourceLabel}</span>
@@ -1657,6 +1748,11 @@ function renderRouteImportSection(): void {
       GeoJSON FeatureCollection (first LineString used).
       Coordinates must be <code>[longitude, latitude]</code> (WGS84, longitude-first).
       Minimum 2 coordinate pairs required.
+      <br>
+      <strong>Rostov1:</strong> owner-provided known-route file
+      (<code>data/raw/routes/Rostov1.geojson</code>) — FeatureCollection, 1 Feature,
+      LineString, 52 waypoints, coordinates [lon, lat], lon ~38.6°–39.4°E, lat ~56.6°–57.2°N.
+      Bundled as <code>public/routes/Rostov1.geojson</code> (Issue #87 / Stage 2).
     </p>
   `;
 
