@@ -147,6 +147,39 @@ type DebugFilterMode = "all" | "accepted" | "suppressed" | "not_driver_facing";
 let debugFilter: DebugFilterMode = "all";
 
 // ---------------------------------------------------------------------------
+// Lifecycle/Order Diagnostics state (Issue #102 / Stage 2)
+//
+// Tracks the previous primary and secondary event IDs across render ticks
+// so we can detect when an event leaves primary/next and show the current
+// reason code that caused the departure.
+//
+// diagLastPrimaryDeparture / diagLastNextDeparture record the most recent
+// departure event (event_id, last-known distance, reason code/kind). They
+// are updated in render() before diagPrevPrimaryId / diagPrevNextId are
+// refreshed.
+//
+// WIP diagnostics state — per session only — NOT Product Canon.
+// ---------------------------------------------------------------------------
+
+/** Event ID of the primary event from the previous render tick. */
+let diagPrevPrimaryId: string | null = null;
+
+/** Event ID of the next/secondary event from the previous render tick. */
+let diagPrevNextId: string | null = null;
+
+/** Record of the most recent departure from primary slot. */
+interface DiagDeparture {
+  event_id: string;
+  distance_m: number;
+  reason_code: string;
+  reason_kind: string;
+  status: string;
+}
+
+let diagLastPrimaryDeparture: DiagDeparture | null = null;
+let diagLastNextDeparture: DiagDeparture | null = null;
+
+// ---------------------------------------------------------------------------
 // Scenario selector state (Issue #70)
 //
 // Tracks the currently selected synthetic scenario for browser QA inspection.
@@ -1249,6 +1282,13 @@ function buildApp(): void {
         <div id="evidence-snapshot" class="evidence-snapshot-section"></div>
       </details>
 
+      <details class="sim-details" id="diag-details">
+        <summary class="sim-details-summary">Lifecycle / Order Diagnostics
+          <span class="sim-details-badge">Issue #102 · diagnostics only · no behavior changes · WIP</span>
+        </summary>
+        <div id="diag-section" class="diag-section"></div>
+      </details>
+
       <details class="sim-details">
         <summary class="sim-details-summary">Debug Panel &#8212; Event Selection
           <span class="sim-details-badge">not driver-facing · WIP</span>
@@ -1679,7 +1719,14 @@ function render(): void {
   renderRouteImportSection();
   renderScenarioInspector();
   renderEvidenceSnapshot(state);
+  // Update lifecycle/order departure tracking before rendering diagnostics
+  // (Issue #102 / Stage 2 — diagnostics only, no selection behavior change).
+  updateDiagDepartures(state);
+  renderDiagnosticsPanel(state);
   renderDebugPanel(state);
+  // Refresh previous primary/next IDs for next render tick departure detection.
+  diagPrevPrimaryId = state.eventSelection.primary?.event_id ?? null;
+  diagPrevNextId = state.eventSelection.secondary?.event_id ?? null;
 
   // Update the map vehicle marker on every render cycle.
   // Position is projection-derived per-session — not GPS, not provider data.
@@ -2618,6 +2665,395 @@ function renderDebugPanel(state: SimulationState): void {
 
   // Attach filter button listeners after innerHTML is set.
   attachDebugFilterListeners(section);
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle / Order Diagnostics (Issue #102 / Stage 2)
+//
+// Read-only diagnostics surface for prepared-event evaluation lifecycle and
+// ordering behavior. No selection or lifecycle behavior changes are made here.
+//
+// Shows:
+//   - event source mode and current vehicle/threshold state
+//   - route-ordered list of nearby events (sorted ascending by distance_m)
+//   - primary/next explanation with "closer but not primary" note
+//   - departure tracking: why an event left primary/next
+//
+// WIP diagnostics — NOT Product Canon. Per-session derived data only.
+// (event-applicability Canon truth 12: suppressed candidates must remain
+//  inspectable in debug; event-data Canon truth 11: no derived fields
+//  written back to fixtures)
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect when primary or next/secondary changed between ticks and record the
+ * current reason code for the departing event.
+ *
+ * Called in render() BEFORE updating diagPrevPrimaryId / diagPrevNextId.
+ * Reads current state.eventSelection.records to find the new reason for the
+ * departed event.
+ *
+ * WIP diagnostics only — no selection behavior change. Issue #102 / Stage 2.
+ */
+function updateDiagDepartures(state: SimulationState): void {
+  const currentPrimaryId = state.eventSelection.primary?.event_id ?? null;
+  const currentNextId = state.eventSelection.secondary?.event_id ?? null;
+
+  // Detect primary departure.
+  if (
+    diagPrevPrimaryId !== null &&
+    diagPrevPrimaryId !== currentPrimaryId
+  ) {
+    const depRecord = state.eventSelection.records.find(
+      (r) => r.event_id === diagPrevPrimaryId
+    );
+    if (depRecord) {
+      diagLastPrimaryDeparture = {
+        event_id: depRecord.event_id,
+        distance_m: depRecord.distance_m,
+        reason_code: depRecord.applicabilityReason.code,
+        reason_kind: depRecord.applicabilityReason.kind,
+        status: depRecord.status,
+      };
+    }
+  }
+
+  // Detect next/secondary departure.
+  if (
+    diagPrevNextId !== null &&
+    diagPrevNextId !== currentNextId
+  ) {
+    const depRecord = state.eventSelection.records.find(
+      (r) => r.event_id === diagPrevNextId
+    );
+    if (depRecord) {
+      diagLastNextDeparture = {
+        event_id: depRecord.event_id,
+        distance_m: depRecord.distance_m,
+        reason_code: depRecord.applicabilityReason.code,
+        reason_kind: depRecord.applicabilityReason.kind,
+        status: depRecord.status,
+      };
+    }
+  }
+}
+
+/**
+ * Render the lifecycle/order diagnostics panel into #diag-section.
+ *
+ * EMULATOR DEBUG / QA UI — NOT THE DRIVER-FACING UI.
+ * Diagnostics only — no selection or lifecycle behavior changes.
+ * No WIP thresholds are modified. No evaluator logic is changed.
+ *
+ * Shows:
+ *   1. Event source mode + vehicle state + WIP thresholds (read-only).
+ *   2. Primary/next explanation (which event, distance, reason, why closer not primary).
+ *   3. Departure tracking (last event that left primary/next, and reason code).
+ *   4. Route-ordered event list (sorted ascending by distance_m; ahead first).
+ *
+ * WIP diagnostics — NOT Product Canon. Issue #102 / Stage 2.
+ */
+function renderDiagnosticsPanel(state: SimulationState): void {
+  const section = document.getElementById("diag-section");
+  if (!section) return;
+
+  const vp = state.vehicleRoutePosition;
+  const sel = state.eventSelection;
+  const evSourceMode = deriveEventSourceMode();
+  const cfg = EMULATOR_TUNING_DEFAULTS;
+
+  // ---------------------------------------------------------------------------
+  // 1. Event source mode + vehicle state + WIP thresholds block
+  // ---------------------------------------------------------------------------
+
+  const evSourceLabel = eventSourceLabel(evSourceMode);
+  const evSourceKind = evSourceMode.kind;
+
+  const vehicleStateHtml = `
+    <div class="diag-grid">
+      <div class="diag-block">
+        <h3 class="diag-h3">Event Source &amp; Vehicle State</h3>
+        <dl class="debug-dl">
+          <dt>Event source mode</dt>
+          <dd><code class="diag-mode-${evSourceKind}">${escapeHtml(evSourceKind)}</code>
+            &nbsp;${escapeHtml(evSourceLabel)}</dd>
+          <dt>Vehicle along-route <span class="wip-inline proj-derived-label">per-session</span></dt>
+          <dd class="proj-derived">${vp.along_route_m.toFixed(0)} m from route start</dd>
+          <dt>Route total length <span class="wip-inline proj-derived-label">per-session</span></dt>
+          <dd class="proj-derived">${vp.total_route_length_m.toFixed(0)} m</dd>
+          <dt>Route progress</dt>
+          <dd>${(state.progress * 100).toFixed(2)}%</dd>
+          <dt>Simulated speed</dt>
+          <dd>${state.speedKmh} km/h (manual — no provider speed)</dd>
+        </dl>
+      </div>
+      <div class="diag-block">
+        <h3 class="diag-h3">WIP Thresholds <span class="wip-inline">not Canon</span></h3>
+        <dl class="debug-dl">
+          <dt>speed_limit lookahead</dt>
+          <dd>min <strong>${cfg.lookahead.speed_limit.min_display_distance_m} m</strong>
+            / max <strong>${cfg.lookahead.speed_limit.max_lookahead_m} m</strong></dd>
+          <dt>static_camera lookahead</dt>
+          <dd>min <strong>${cfg.lookahead.static_camera.min_display_distance_m} m</strong>
+            / max <strong>${cfg.lookahead.static_camera.max_lookahead_m} m</strong></dd>
+          <dt>road_bump lookahead</dt>
+          <dd>min <strong>${cfg.lookahead.road_bump.min_display_distance_m} m</strong>
+            / max <strong>${cfg.lookahead.road_bump.max_lookahead_m} m</strong></dd>
+          <dt>Cross-track reject</dt>
+          <dd><strong>${cfg.direction_applicability.route_projection_reject_m} m</strong>
+            (route_projection_reject_m WIP)</dd>
+          <dt>Direction accept ≤</dt>
+          <dd><strong>${cfg.direction_applicability.direction_delta_accept_deg}°</strong></dd>
+          <dt>Direction reject above</dt>
+          <dd><strong>${cfg.direction_applicability.direction_delta_reject_above_deg}°</strong></dd>
+        </dl>
+      </div>
+    </div>`;
+
+  // ---------------------------------------------------------------------------
+  // 2. Primary / next explanation + "closer but not primary" detection
+  // ---------------------------------------------------------------------------
+
+  const primaryRecord = sel.records.find((r) => r.status === "selected");
+  const secondaryId = sel.secondary?.event_id ?? null;
+
+  // Build the primary/next explanation lines.
+  const primaryLine = primaryRecord
+    ? `<span class="diag-primary-badge">Primary</span>
+       event <code>${escapeHtml(primaryRecord.event_id)}</code>
+       · ${primaryRecord.distance_m.toFixed(0)} m ahead
+       · <code>${escapeHtml(primaryRecord.applicabilityReason.code)}</code>
+       · ${escapeHtml(primaryRecord.normalized_type)}`
+    : `<span class="diag-no-primary">No primary event</span>`;
+
+  const nextRecord = sel.records.find(
+    (r) => r.event_id === secondaryId && secondaryId !== null
+  );
+  const nextLine = nextRecord
+    ? `<span class="diag-next-badge">Next</span>
+       event <code>${escapeHtml(nextRecord.event_id)}</code>
+       · ${nextRecord.distance_m.toFixed(0)} m ahead
+       · <code>${escapeHtml(nextRecord.applicabilityReason.code)}</code>
+       · ${escapeHtml(nextRecord.normalized_type)}`
+    : `<em>No next/secondary event</em>`;
+
+  // Detect closer events that are NOT primary — show their reason.
+  const primaryDistM = primaryRecord?.distance_m ?? Infinity;
+  const closerNotPrimary = sel.records
+    .filter(
+      (r) =>
+        r.distance_m > 0 &&
+        r.distance_m < primaryDistM &&
+        r.event_id !== (primaryRecord?.event_id ?? "") &&
+        r.status !== "out_of_scope"
+    )
+    .sort((a, b) => a.distance_m - b.distance_m);
+
+  const closerNotPrimaryHtml =
+    closerNotPrimary.length > 0
+      ? closerNotPrimary
+          .map(
+            (r) =>
+              `<div class="diag-closer-row">
+                <span class="diag-closer-badge">Closer, not primary</span>
+                event <code>${escapeHtml(r.event_id)}</code>
+                · ${r.distance_m.toFixed(0)} m ahead
+                · reason: <code>${escapeHtml(r.applicabilityReason.code)}</code>
+                (${escapeHtml(r.applicabilityReason.kind)})
+                · status: <code>${escapeHtml(r.status)}</code>
+              </div>`
+          )
+          .join("")
+      : primaryRecord
+        ? `<div class="diag-no-closer"><em>No closer events ahead</em></div>`
+        : `<div class="diag-no-closer"><em>No primary event selected</em></div>`;
+
+  // ---------------------------------------------------------------------------
+  // 3. Departure tracking
+  // ---------------------------------------------------------------------------
+
+  const fmtDeparture = (dep: DiagDeparture | null, role: string): string => {
+    if (dep === null) return `<em>No ${role} departure recorded this session</em>`;
+    const distStr =
+      dep.distance_m >= 0
+        ? `${dep.distance_m.toFixed(0)} m ahead`
+        : `${Math.abs(dep.distance_m).toFixed(0)} m behind`;
+    return `<span class="diag-departure-badge">Was ${role}</span>
+      event <code>${escapeHtml(dep.event_id)}</code>
+      · now ${distStr}
+      · status: <code>${escapeHtml(dep.status)}</code>
+      · reason: <code>${escapeHtml(dep.reason_code)}</code>
+      (${escapeHtml(dep.reason_kind)})`;
+  };
+
+  const departureHtml = `
+    <div class="diag-departure-row">${fmtDeparture(diagLastPrimaryDeparture, "primary")}</div>
+    <div class="diag-departure-row">${fmtDeparture(diagLastNextDeparture, "next")}</div>`;
+
+  const explanationHtml = `
+    <div class="diag-block diag-block-full">
+      <h3 class="diag-h3">Primary / Next Explanation
+        <span class="wip-inline">per-session diagnostics · not Canon</span>
+      </h3>
+      <div class="diag-explanation">
+        <div class="diag-explanation-row">${primaryLine}</div>
+        <div class="diag-explanation-row">${nextLine}</div>
+      </div>
+      <div class="diag-closer-section">
+        <strong>Closer events not primary:</strong>
+        ${closerNotPrimaryHtml}
+      </div>
+      <div class="diag-departure-section">
+        <strong>Disappearance / departure tracking:</strong>
+        ${departureHtml}
+      </div>
+    </div>`;
+
+  // ---------------------------------------------------------------------------
+  // 4. Route-ordered event list (sorted ascending by distance_m, ahead first)
+  // ---------------------------------------------------------------------------
+
+  // Sort: ahead events (distance_m > 0) ascending, then behind (distance_m <= 0) descending.
+  // For each row compute the marker eval state from the existing buildMarkerEvalStateMap logic.
+  const evalStateMap =
+    evSourceMode.kind === "prepared_route"
+      ? buildMarkerEvalStateMap(state)
+      : null;
+
+  // Pre-build active event map for source provenance (source_type_label, source_ref).
+  const activeEventsMap = new Map<string, PreparedEvent>(
+    getActiveEventsForSim().map((e) => [e.event_id, e])
+  );
+
+  const aheadRecords = sel.records
+    .filter((r) => r.distance_m > 0)
+    .sort((a, b) => a.distance_m - b.distance_m);
+
+  const behindRecords = sel.records
+    .filter((r) => r.distance_m <= 0)
+    .sort((a, b) => b.distance_m - a.distance_m); // closest behind first
+
+  const buildDiagRow = (
+    r: EventSelectionRecord,
+    idx: number,
+    isAhead: boolean
+  ): string => {
+    const pe = activeEventsMap.get(r.event_id);
+    const sourceLabel = pe?.route_source_type_label ?? "–";
+    const sourceRef = pe?.route_source_ref ?? "–";
+    const rawType = pe?.raw_type ?? r.normalized_type;
+    const markerState = evalStateMap?.get(r.event_id) ?? "–";
+
+    const isSelected = r.status === "selected";
+    const isNext = r.event_id === secondaryId;
+
+    let roleCell = "–";
+    if (isSelected) roleCell = `<span class="diag-role-primary">primary</span>`;
+    else if (isNext) roleCell = `<span class="diag-role-next">next</span>`;
+    else if (r.status === "candidate") roleCell = `<span class="diag-role-eligible">eligible</span>`;
+    else if (r.applicabilityReason.kind === "suppressed") roleCell = `<span class="diag-role-suppressed">suppressed</span>`;
+    else if (r.applicabilityReason.kind === "not_processed") roleCell = `<span class="diag-role-oos">out_of_scope</span>`;
+
+    const distCell = isAhead
+      ? `+${r.distance_m.toFixed(0)}`
+      : r.distance_m.toFixed(0);
+
+    const rowClass =
+      isSelected
+        ? " diag-row-primary"
+        : isNext
+          ? " diag-row-next"
+          : r.applicabilityReason.kind === "suppressed"
+            ? " diag-row-suppressed"
+            : "";
+
+    return `
+      <tr class="diag-event-row${rowClass}">
+        <td class="diag-td-idx">${idx + 1}</td>
+        <td class="diag-td-id" title="${escapeHtml(r.event_id)}">${escapeHtml(r.event_id.slice(0, 12))}…</td>
+        <td class="diag-td-ref">${escapeHtml(sourceRef)}</td>
+        <td class="diag-td-label" title="${escapeHtml(sourceLabel)}">${escapeHtml(sourceLabel)}</td>
+        <td class="diag-td-raw">${escapeHtml(String(rawType))}</td>
+        <td class="diag-td-norm">${escapeHtml(r.normalized_type)}</td>
+        <td class="diag-td-dist ${isAhead ? "diag-dist-ahead" : "diag-dist-behind"}">${distCell}</td>
+        <td class="diag-td-along proj-derived">${r.projection_along_route_m.toFixed(0)}</td>
+        <td class="diag-td-status"><code>${escapeHtml(r.status)}</code></td>
+        <td class="diag-td-code"><code>${escapeHtml(r.applicabilityReason.code)}</code></td>
+        <td class="diag-td-kind">${escapeHtml(r.applicabilityReason.kind)}</td>
+        <td class="diag-td-role">${roleCell}</td>
+        <td class="diag-td-marker">${escapeHtml(String(markerState))}</td>
+      </tr>`;
+  };
+
+  let tableRowsHtml = "";
+  if (aheadRecords.length > 0) {
+    tableRowsHtml += `<tr class="diag-group-sep"><td colspan="13">↑ Ahead (${aheadRecords.length} events) — sorted nearest first</td></tr>`;
+    tableRowsHtml += aheadRecords.map((r, i) => buildDiagRow(r, i, true)).join("");
+  }
+  if (behindRecords.length > 0) {
+    tableRowsHtml += `<tr class="diag-group-sep"><td colspan="13">↓ Behind (${behindRecords.length} events) — sorted nearest first</td></tr>`;
+    tableRowsHtml += behindRecords.map((r, i) => buildDiagRow(r, i, false)).join("");
+  }
+  if (tableRowsHtml === "") {
+    tableRowsHtml = `<tr><td colspan="13" class="table-empty-msg">No events in current evaluation set.</td></tr>`;
+  }
+
+  const eventListHtml = `
+    <div class="diag-block diag-block-full">
+      <h3 class="diag-h3">Route-Ordered Event List
+        <span class="wip-inline">sorted by along-route distance · per-session · not Canon</span>
+      </h3>
+      <p class="debug-note">
+        Events sorted by <strong>signed along-route distance</strong> from vehicle (projection-derived, per-session).
+        Ahead events shown first (ascending distance), then behind events.
+        <strong>source_type_label</strong> is the primary human-readable label.
+        Marker eval state shown only in <code>prepared_route</code> mode.
+        <strong>Diagnostics only — no selection behavior changed.</strong>
+      </p>
+      <div class="table-scroll">
+        <table class="event-table diag-event-table">
+          <thead>
+            <tr>
+              <th class="diag-th-idx">#</th>
+              <th>Event ID</th>
+              <th>Source Ref</th>
+              <th>Source Label</th>
+              <th>raw_type</th>
+              <th>norm type</th>
+              <th>Dist (m)</th>
+              <th class="proj-derived-label">Along-route ⊕</th>
+              <th>Status</th>
+              <th>Reason code</th>
+              <th>Kind</th>
+              <th>Role</th>
+              <th>Marker state</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHtml}
+          </tbody>
+        </table>
+      </div>
+      <p class="debug-note-small">
+        ⊕ per-session derived projection value — not persisted to base fixture files
+        (event-applicability Canon truth 13)
+      </p>
+    </div>`;
+
+  section.innerHTML = `
+    <h2>Lifecycle / Order Diagnostics
+      <span class="wip-badge">Issue #102 · diagnostics only · no selection/lifecycle behavior changes · WIP · not Canon</span>
+    </h2>
+    <div class="debug-warning">
+      ⚠ Read-only diagnostics. No selection, lifecycle, or threshold changes are made here.
+      All data is per-session derived — not persisted. WIP emulator debug — NOT Product Canon.
+      Values reflect current evaluator behavior; see
+      <code>docs/research/roadahead-stage2-lifecycle-order-diagnostics.md</code> for findings.
+    </div>
+    ${vehicleStateHtml}
+    ${explanationHtml}
+    ${eventListHtml}
+  `;
 }
 
 // ---------------------------------------------------------------------------

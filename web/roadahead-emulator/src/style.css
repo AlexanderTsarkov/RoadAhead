@@ -2806,3 +2806,218 @@ code {
   font-size: 0.68rem;
   color: #64748b;
 }
+
+/* ===========================================================================
+   Lifecycle / Order Diagnostics panel — Issue #102 / Stage 2
+   WIP diagnostics only — NOT Product Canon.
+   =========================================================================== */
+
+.diag-section {
+  padding: 1rem 1.5rem 1.5rem;
+  background: #0d1117;
+  color: #e2e8f0;
+}
+
+.diag-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.diag-block {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+}
+
+.diag-block-full {
+  grid-column: 1 / -1;
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-top: 0.5rem;
+}
+
+.diag-h3 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #93c5fd;
+  margin: 0 0 0.5rem 0;
+}
+
+/* Event source mode code coloring */
+code.diag-mode-synthetic       { color: #86efac; }
+code.diag-mode-prepared_route  { color: #fbbf24; }
+code.diag-mode-no_prepared     { color: #f87171; }
+
+/* Primary / Next explanation */
+.diag-explanation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.diag-explanation-row {
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.diag-primary-badge {
+  display: inline-block;
+  background: #FFD700;
+  color: #1a1200;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-right: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.diag-next-badge {
+  display: inline-block;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-right: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.diag-no-primary {
+  color: #6b7280;
+  font-style: italic;
+  font-size: 0.82rem;
+}
+
+/* Closer-not-primary section */
+.diag-closer-section {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.diag-closer-row {
+  margin: 0.2rem 0 0.2rem 0.75rem;
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.diag-closer-badge {
+  display: inline-block;
+  background: #92400e;
+  color: #fef3c7;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-right: 4px;
+  text-transform: uppercase;
+}
+
+.diag-no-closer {
+  color: #6b7280;
+  font-size: 0.78rem;
+  margin: 0.2rem 0 0.2rem 0.75rem;
+  font-style: italic;
+}
+
+/* Departure tracking */
+.diag-departure-section {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: #94a3b8;
+  border-top: 1px solid #21262d;
+  padding-top: 0.5rem;
+}
+
+.diag-departure-row {
+  margin: 0.2rem 0 0.2rem 0.75rem;
+  color: #e2e8f0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.diag-departure-badge {
+  display: inline-block;
+  background: #581c87;
+  color: #e9d5ff;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-right: 4px;
+  text-transform: uppercase;
+}
+
+/* Route-ordered event table */
+.diag-event-table {
+  font-size: 0.72rem;
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 900px;
+}
+
+.diag-event-table th,
+.diag-event-table td {
+  padding: 4px 6px;
+  border: 1px solid #21262d;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.diag-event-table thead th {
+  background: #1e2a38;
+  color: #93c5fd;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.diag-th-idx { width: 2rem; text-align: center; }
+.diag-td-idx { text-align: center; color: #6b7280; font-size: 0.68rem; }
+.diag-td-id  { font-family: monospace; font-size: 0.7rem; color: #94a3b8; }
+.diag-td-ref { font-family: monospace; font-size: 0.7rem; color: #64748b; }
+.diag-td-label { font-weight: 600; color: #7dd3fc; }
+.diag-td-raw   { color: #64748b; font-size: 0.68rem; }
+.diag-td-norm  { color: #a5b4fc; }
+.diag-td-dist  { text-align: right; font-family: monospace; font-weight: 600; }
+.diag-td-along { text-align: right; font-family: monospace; color: #7dd3fc; font-size: 0.68rem; }
+.diag-td-status code { font-size: 0.68rem; }
+.diag-td-code   code { font-size: 0.68rem; }
+.diag-td-kind        { font-size: 0.68rem; color: #94a3b8; }
+.diag-td-role        { text-align: center; }
+.diag-td-marker      { font-size: 0.68rem; color: #94a3b8; }
+
+.diag-dist-ahead  { color: #34d399; }
+.diag-dist-behind { color: #f87171; }
+
+/* Row role styles */
+.diag-row-primary   { background: #1f1800; }
+.diag-row-next      { background: #0f1a2e; }
+.diag-row-suppressed { opacity: 0.7; }
+
+/* Role cell badges */
+.diag-role-primary   { display: inline-block; background: #FFD700; color: #1a1200; font-size: 0.65rem; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
+.diag-role-next      { display: inline-block; background: #3b82f6; color: #fff;    font-size: 0.65rem; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
+.diag-role-eligible  { display: inline-block; background: #22c55e; color: #fff;    font-size: 0.65rem; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
+.diag-role-suppressed{ display: inline-block; background: #6b7280; color: #fff;    font-size: 0.65rem; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
+.diag-role-oos       { display: inline-block; background: #1f2937; color: #6b7280; font-size: 0.65rem; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
+
+/* Group separator row */
+.diag-group-sep td {
+  background: #1e2a38;
+  color: #7dd3fc;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 4px 6px;
+  border-top: 2px solid #2d4263;
+}
