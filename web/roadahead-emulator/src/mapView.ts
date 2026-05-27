@@ -325,6 +325,25 @@ function buildEventPopupHtml(
   const facingDirDeg = ev.direction_deg;
   const effectiveTravelDirDeg = (facingDirDeg + 180) % 360;
 
+  // DIRTYPE display (Issue #99 P2 fix — DIRTYPE=2 → evaluator bidirectional).
+  // Raw DIRTYPE from dataset is shown alongside the evaluator's effective source_dirtype.
+  // DIRTYPE=2 ("both directions") is adapted to evaluator's bidirectional (0).
+  // WIP — NOT Product Canon.
+  const rawDirtype = ev.dirtype;
+  const evalDirtype = rawDirtype === 2 ? 0 : rawDirtype;
+  const dirtypeNote =
+    rawDirtype === 2
+      ? `<em class="ev-popup-dir-note">both directions → eval bidirectional (0) · WIP Datakam conv.</em>`
+      : rawDirtype === 1
+      ? `<em class="ev-popup-dir-note">one direction</em>`
+      : rawDirtype === 0
+      ? `<em class="ev-popup-dir-note">all directions</em>`
+      : `<em class="ev-popup-dir-note">unknown/unsupported</em>`;
+  const dirtypeEvalRow =
+    rawDirtype !== evalDirtype
+      ? `<tr><td>dirtype (eval)</td><td><strong>${escapeHtmlMapView(evalDirtype)}</strong> <em class="ev-popup-dir-note">adapter: ${rawDirtype}→${evalDirtype}</em></td></tr>`
+      : "";
+
   return `
     <div class="ev-popup">
       <div class="ev-popup-header">
@@ -337,7 +356,8 @@ function buildEventPopupHtml(
         <tr><td>norm. type</td><td><em>${escapeHtmlMapView(ev.type)}</em></td></tr>
         ${evalStateRow}
         <tr><td>speed</td><td>${ev.speed_kmh != null ? escapeHtmlMapView(ev.speed_kmh) + " km/h" : "—"}</td></tr>
-        <tr><td>dirtype</td><td>${escapeHtmlMapView(ev.dirtype)}</td></tr>
+        <tr><td>dirtype (src)</td><td>${escapeHtmlMapView(rawDirtype)} ${dirtypeNote}</td></tr>
+        ${dirtypeEvalRow}
         <tr><td>facing dir (src)</td><td>${escapeHtmlMapView(facingDirDeg)}° <em class="ev-popup-dir-note">raw DIRECTION · sign/camera facing</em></td></tr>
         <tr><td>travel dir (eff.)</td><td><strong>${escapeHtmlMapView(effectiveTravelDirDeg)}°</strong> <em class="ev-popup-dir-note">(facing+180)%360 · WIP Datakam conv.</em></td></tr>
         <tr><td>id / ref</td><td>${escapeHtmlMapView(ev.id)} / ${escapeHtmlMapView(ev.source_ref)}</td></tr>

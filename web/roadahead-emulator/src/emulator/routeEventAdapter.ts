@@ -54,6 +54,46 @@ import type { PreparedEvent } from "../contracts/preparedEvent.js";
 import type { RouteEvent } from "../contracts/routeEventDataset.js";
 
 // ---------------------------------------------------------------------------
+// DIRTYPE convention helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Translate a Datakam/OpenSpeedcam DIRTYPE value to the evaluator's
+ * source_dirtype representation.
+ *
+ * The evaluator (directionCompatibility.ts) only handles:
+ *   0 → bidirectional
+ *   1 → directional
+ *   null → unknown
+ *   other → unsupported (suppressed)
+ *
+ * Datakam/OpenSpeedcam DIRTYPE=2 means "both directions" — semantically
+ * equivalent to the evaluator's bidirectional (source_dirtype=0). Without this
+ * mapping, DIRTYPE=2 rows (e.g. many speed_bump events) would be incorrectly
+ * suppressed as direction_unsupported.
+ *
+ * Mapping (Stage 2 WIP — NOT Product Canon):
+ *   DIRTYPE 0 → 0  (all directions → evaluator bidirectional; no change)
+ *   DIRTYPE 1 → 1  (one direction → evaluator directional; no change)
+ *   DIRTYPE 2 → 0  (both directions → evaluator bidirectional)
+ *   other     → pass through (evaluator will return direction_unsupported)
+ *
+ * The raw DIRTYPE is preserved in PreparedEvent.route_raw_dirtype for debug
+ * display — the popup shows both the source DIRTYPE and the evaluator value.
+ * Synthetic fixture PreparedEvents are NOT affected by this mapping.
+ *
+ * WIP — NOT Product Canon. Source semantics not globally verified.
+ * See: docs/research/datakam-openspeedcam-type-mapping.md §DIRTYPE
+ *
+ * @param rawDirtype - Raw DIRTYPE value from the source dataset.
+ * @returns Evaluator-compatible source_dirtype value.
+ */
+export function datakamDirtypeToEvaluatorDirtype(rawDirtype: number | null): number | null {
+  if (rawDirtype === 2) return 0; // "both directions" → evaluator bidirectional
+  return rawDirtype;              // 0, 1, null, and unknown values pass through
+}
+
+// ---------------------------------------------------------------------------
 // Direction convention helpers
 // ---------------------------------------------------------------------------
 
@@ -101,7 +141,10 @@ export function datakamFacingToTravelDirection(facingDirectionDeg: number): numb
  *     (effective vehicle travel direction — Datakam DIRECTION convention WIP)
  *   RouteEvent.direction_deg   → PreparedEvent.route_raw_facing_direction_deg
  *     (raw source-facing direction; preserved for debug display)
- *   RouteEvent.dirtype         → PreparedEvent.source_dirtype
+ *   datakamDirtypeToEvaluatorDirtype(dirtype) → PreparedEvent.source_dirtype
+ *     (DIRTYPE 2 mapped to 0 — "both directions" → evaluator bidirectional)
+ *   RouteEvent.dirtype         → PreparedEvent.route_raw_dirtype
+ *     (raw source DIRTYPE; preserved for debug display)
  *   RouteEvent.source_type_label → PreparedEvent.route_source_type_label
  *   RouteEvent.source_ref      → PreparedEvent.route_source_ref
  *
@@ -140,7 +183,10 @@ export function adaptRouteEventToPreparedEvent(ev: RouteEvent): PreparedEvent {
     // Effective vehicle travel direction — Datakam convention (facing + 180) % 360.
     // Used by directionCompatibility.ts for direction delta computation.
     source_direction_deg: effectiveTravelDirectionDeg,
-    source_dirtype: ev.dirtype,
+    // Translate DIRTYPE=2 ("both directions") to evaluator bidirectional (0).
+    // Without this, DIRTYPE=2 rows (e.g. speed_bump) are suppressed as unsupported.
+    // WIP — NOT Product Canon. Synthetic fixtures are unaffected.
+    source_dirtype: datakamDirtypeToEvaluatorDirtype(ev.dirtype),
     imported_at: new Date().toISOString(),
     // Stage 2 / Issue #99 — optional provenance extension fields.
     // Preserved for display code; not used by the evaluation pipeline.
@@ -150,6 +196,10 @@ export function adaptRouteEventToPreparedEvent(ev: RouteEvent): PreparedEvent {
     // Shown in debug popup alongside the effective travel direction.
     // WIP — NOT Product Canon.
     route_raw_facing_direction_deg: ev.direction_deg,
+    // Raw DIRTYPE from the source dataset (before adapter normalization).
+    // Shown in debug popup alongside the evaluator's effective source_dirtype.
+    // WIP — NOT Product Canon.
+    route_raw_dirtype: ev.dirtype,
   };
 }
 

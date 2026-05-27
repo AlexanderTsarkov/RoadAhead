@@ -191,4 +191,27 @@ export interface PreparedEvent {
    * (event-applicability Canon truth 8; direction-applicability research §3.E)
    */
   route_raw_facing_direction_deg?: number;
+
+  /**
+   * Raw DIRTYPE value from the Datakam/OpenSpeedcam source dataset, before
+   * adapter normalization to evaluator conventions.
+   *
+   * Only set for adapted route events (Issue #99 follow-up). Undefined for
+   * synthetic fixtures — not affected by Datakam dirtype convention.
+   *
+   * Datakam/OpenSpeedcam DIRTYPE=2 ("both directions") is adapted to
+   * source_dirtype=0 (the evaluator's bidirectional representation) because the
+   * current evaluator only recognizes 0 (bidirectional) and 1 (directional).
+   * This raw value is preserved here so the debug popup can show the original
+   * source DIRTYPE alongside the evaluator's effective source_dirtype.
+   *
+   * DIRTYPE mapping applied by the adapter (Stage 2 WIP — not Product Canon):
+   *   DIRTYPE 0 → evaluator source_dirtype 0 (bidirectional, no change)
+   *   DIRTYPE 1 → evaluator source_dirtype 1 (directional, no change)
+   *   DIRTYPE 2 → evaluator source_dirtype 0 (both directions → bidirectional)
+   *   other     → passed through (evaluator will return direction_unsupported)
+   *
+   * WIP — NOT Product Canon.
+   */
+  route_raw_dirtype?: number;
 }

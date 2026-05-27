@@ -138,6 +138,36 @@ Debug visibility: marker popups show both values:
 
 Manual QA observation that motivated this fix: a `dangerous_turn` event before a curve was incorrectly suppressed by the direction compatibility check, while a later `dangerous_turn` near/after the same curve was selected. This pattern is consistent with the evaluator comparing the route heading directly against the source-facing direction (which is approximately 180° opposite to the travel heading). After applying the `(DIRECTION + 180) % 360` inversion, the before-curve event is no longer suppressed solely by the direction mismatch.
 
+### Stage 2 DIRTYPE=2 mapping (Issue #99 P2 fix)
+
+The Stage 2 evaluator (`directionCompatibility.ts`) only recognizes two DIRTYPE values:
+- `0` → bidirectional (applies in both travel directions)
+- `1` → directional (one direction; compare DIRECTION against route heading)
+
+All other values are treated as `direction_unsupported` and the event is suppressed.
+
+Datakam/OpenSpeedcam `DIRTYPE=2` means "both directions" — semantically equivalent to the evaluator's bidirectional (DIRTYPE=0). Without a mapping, many `speed_bump`, `bad_road`, and similar events with `DIRTYPE=2` would be incorrectly suppressed as `direction_unsupported`.
+
+The adapter (`routeEventAdapter.ts`) now applies:
+
+```
+DIRTYPE 0 → evaluator source_dirtype 0  (all directions → bidirectional; no change)
+DIRTYPE 1 → evaluator source_dirtype 1  (one direction → directional; no change)
+DIRTYPE 2 → evaluator source_dirtype 0  (both directions → bidirectional)
+other     → pass through (evaluator returns direction_unsupported)
+```
+
+The raw `DIRTYPE` from the source dataset is preserved in `PreparedEvent.route_raw_dirtype` for debug display. Marker popups show:
+- `dirtype (src)` — raw DIRTYPE from the source dataset
+- `dirtype (eval)` — evaluator's effective source_dirtype (only shown when different from raw, e.g. DIRTYPE=2 rows show `2→0`)
+
+**WIP — NOT Product Canon.** Applies only to adapted route events; synthetic fixtures are unaffected.
+
+`DIRTYPE` summary:
+- `0` — all directions; evaluator: bidirectional; no conversion
+- `1` — one direction; evaluator: directional; DIRECTION+180 applied (see above)
+- `2` — both directions; evaluator: bidirectional (mapped from 2 → 0)
+
 ---
 
 ## Stage 2 mapping history
