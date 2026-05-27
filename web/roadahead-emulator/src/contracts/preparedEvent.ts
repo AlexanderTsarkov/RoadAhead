@@ -25,8 +25,20 @@
  * WIP and subject to revision by future implementation slices or ADRs.
  */
 
-/** POC V1 supported normalized event types (event-data Canon truth 6). */
-export type NormalizedEventType = "speed_limit" | "static_camera" | "road_bump";
+/**
+ * POC V1 supported normalized event types (event-data Canon truth 6).
+ *
+ * "unknown" added in Stage 2 / Issue #99 to support RouteEvent adaptation:
+ * RouteEventNormalizedType already includes "unknown" for raw TYPE codes that
+ * could not be confidently mapped. The evaluator routes "unknown" to
+ * out_of_scope (not processed) — it does not affect speed_limit / camera /
+ * road_bump evaluation. WIP — NOT Product Canon.
+ */
+export type NormalizedEventType =
+  | "speed_limit"
+  | "static_camera"
+  | "road_bump"
+  | "unknown";
 
 /**
  * A prepared normalized candidate event.
@@ -89,8 +101,19 @@ export interface PreparedEvent {
   lat: number;
 
   /**
-   * Advisory target speed in km/h. Required for speed_limit; nullable for
-   * other types that do not carry a target speed.
+   * Advisory target speed in km/h.
+   *
+   * Set ONLY for speed_limit normalized events. Null for all other event
+   * types (static_camera, road_bump, unknown).
+   *
+   * Cameras and hazards carry a source SPEED attribute from Datakam/
+   * OpenSpeedcam, but that is an advisory/source attribute of the sign or
+   * camera record — it is NOT a RoadAhead target speed rule. The evaluator
+   * pipeline may only derive approach_target guidance from a speed_limit event.
+   *
+   * Source speed for non-speed_limit events is preserved separately in
+   * route_source_speed_kmh (if adapted from a RouteEvent) for debug/provenance
+   * display — it does NOT drive target-speed guidance.
    *
    * This value is advisory guidance context only — not a legal speed-limit
    * authority and not safety-certified. It is sourced from the prepared
@@ -126,4 +149,101 @@ export interface PreparedEvent {
    * Provenance only — not used in emulator logic.
    */
   imported_at: string;
+
+  // ---------------------------------------------------------------------------
+  // Stage 2 / Issue #99 — optional route event provenance fields
+  //
+  // Only set when this PreparedEvent was adapted from a RouteEvent by
+  // routeEventAdapter.ts. Not set for synthetic fixture events (undefined).
+  //
+  // Used by display code to show source_type_label and source_ref from the
+  // Datakam/OpenSpeedcam route event dataset without hiding source semantics.
+  // Per #95 display contract: source_type_label is the primary human-readable
+  // label; raw_type (as string) is the debugging provenance.
+  //
+  // NOT used by the evaluation pipeline (projection, direction, selection).
+  // WIP — NOT Product Canon.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Source SPEED value from Datakam/OpenSpeedcam, in km/h.
+   * Only set for adapted route events (non-null from RouteEvent.speed_kmh).
+   * Null if the source had no speed value, undefined for synthetic fixtures.
+   *
+   * This field is for debug/provenance display only. It is an advisory/source
+   * attribute of the sign or camera record and does NOT drive target-speed
+   * guidance for any event type.
+   *
+   * For speed_limit events, this matches target_speed_kmh. For all other event
+   * types (static_camera, road_bump, unknown), target_speed_kmh is null and
+   * this field is the only reference to the source speed.
+   *
+   * Display rule: show as "source speed (advisory)" in debug popups and tables.
+   * Do NOT imply this is a RoadAhead target speed for non-speed_limit events.
+   *
+   * WIP — NOT Product Canon. Stage 2 / Issue #99 P2 fix.
+   * (event-data Canon truths 1, 5; speed-reference Canon truths 4, 5)
+   */
+  route_source_speed_kmh?: number | null;
+
+  /**
+   * Source-type label from the Datakam/OpenSpeedcam type mapping.
+   * Mirrors RouteEvent.source_type_label. Only set for adapted route events.
+   * Display rule: show this FIRST as the primary human-readable label.
+   * (event-data Canon truth 8; Issue #95 display contract)
+   * WIP — NOT Product Canon.
+   */
+  route_source_type_label?: string;
+
+  /**
+   * Source row reference (IDX) from the route event dataset.
+   * Mirrors RouteEvent.source_ref. Only set for adapted route events.
+   * Used for provenance tracing in debug popups and status summaries.
+   * WIP — NOT Product Canon.
+   */
+  route_source_ref?: string;
+
+  /**
+   * Raw source-facing direction from the Datakam/OpenSpeedcam DIRECTION field.
+   * This is the direction the sign/camera is FACING (toward approaching vehicles),
+   * NOT the vehicle travel direction for which the event applies.
+   *
+   * Only set for adapted route events (Issue #99 follow-up). Undefined for
+   * synthetic fixtures — not affected by Datakam direction convention.
+   *
+   * Datakam/OpenSpeedcam direction convention (Stage 2 WIP — not Product Canon):
+   *   source_facing_direction_deg = RouteEvent.direction_deg
+   *   applicable_vehicle_travel_direction_deg = (direction_deg + 180) % 360
+   *
+   * The evaluator uses source_direction_deg (which is the effective travel
+   * direction after the adapter applies the 180° inversion). This raw facing
+   * direction is preserved for debug display only.
+   *
+   * WIP — NOT Product Canon. Source semantics not globally verified.
+   * (event-applicability Canon truth 8; direction-applicability research §3.E)
+   */
+  route_raw_facing_direction_deg?: number;
+
+  /**
+   * Raw DIRTYPE value from the Datakam/OpenSpeedcam source dataset, before
+   * adapter normalization to evaluator conventions.
+   *
+   * Only set for adapted route events (Issue #99 follow-up). Undefined for
+   * synthetic fixtures — not affected by Datakam dirtype convention.
+   *
+   * Datakam/OpenSpeedcam DIRTYPE=2 ("both directions") is adapted to
+   * source_dirtype=0 (the evaluator's bidirectional representation) because the
+   * current evaluator only recognizes 0 (bidirectional) and 1 (directional).
+   * This raw value is preserved here so the debug popup can show the original
+   * source DIRTYPE alongside the evaluator's effective source_dirtype.
+   *
+   * DIRTYPE mapping applied by the adapter (Stage 2 WIP — not Product Canon):
+   *   DIRTYPE 0 → evaluator source_dirtype 0 (bidirectional, no change)
+   *   DIRTYPE 1 → evaluator source_dirtype 1 (directional, no change)
+   *   DIRTYPE 2 → evaluator source_dirtype 0 (both directions → bidirectional)
+   *   other     → passed through (evaluator will return direction_unsupported)
+   *
+   * WIP — NOT Product Canon.
+   */
+  route_raw_dirtype?: number;
 }

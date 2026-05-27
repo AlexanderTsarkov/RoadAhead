@@ -115,6 +115,86 @@ This is WIP source-semantics evidence only. It has not been proven globally. Ind
 - `1` — one-directional (one `DIRECTION` arrow in the QA viewer)
 - `2` — bidirectional (two opposite arrows in the QA viewer)
 
+### Stage 2 emulator implementation (Issue #99 follow-up)
+
+**Owner/manual QA confirmed** the source direction convention for the Rostov1 route: `DIRECTION` is where the sign or camera is **facing** (generally toward approaching vehicles). It is not the vehicle travel direction for which the event applies.
+
+The Stage 2 emulator (`web/roadahead-emulator`) now implements this convention in the prepared route event adapter (`src/emulator/routeEventAdapter.ts`):
+
+```
+source_facing_direction_deg = RouteEvent.direction_deg       (raw DIRECTION from dataset)
+applicable_vehicle_travel_direction_deg = (source_facing_direction_deg + 180) % 360
+```
+
+The **effective vehicle travel direction** is passed to the existing `directionCompatibility.ts` evaluator as `PreparedEvent.source_direction_deg`. The **raw facing direction** is preserved in `PreparedEvent.route_raw_facing_direction_deg` for debug display only.
+
+This convention applies **only to adapted route events** (Datakam/OpenSpeedcam prepared datasets). Synthetic fixture `PreparedEvent`s used for scenario testing are **not affected**.
+
+Debug visibility: marker popups show both values:
+- `facing dir (src)` — raw `DIRECTION` value from the dataset
+- `travel dir (eff.)` — computed `(DIRECTION + 180) % 360` used by the evaluator
+
+**WIP — NOT Product Canon.** This is source-semantics handling based on manual QA observation. It has not been globally verified across all route segments and event types. Do not promote to Canon without a wider systematic verification.
+
+Manual QA observation that motivated this fix: a `dangerous_turn` event before a curve was incorrectly suppressed by the direction compatibility check, while a later `dangerous_turn` near/after the same curve was selected. This pattern is consistent with the evaluator comparing the route heading directly against the source-facing direction (which is approximately 180° opposite to the travel heading). After applying the `(DIRECTION + 180) % 360` inversion, the before-curve event is no longer suppressed solely by the direction mismatch.
+
+### Stage 2 DIRTYPE=2 mapping (Issue #99 P2 fix)
+
+The Stage 2 evaluator (`directionCompatibility.ts`) only recognizes two DIRTYPE values:
+- `0` → bidirectional (applies in both travel directions)
+- `1` → directional (one direction; compare DIRECTION against route heading)
+
+All other values are treated as `direction_unsupported` and the event is suppressed.
+
+Datakam/OpenSpeedcam `DIRTYPE=2` means "both directions" — semantically equivalent to the evaluator's bidirectional (DIRTYPE=0). Without a mapping, many `speed_bump`, `bad_road`, and similar events with `DIRTYPE=2` would be incorrectly suppressed as `direction_unsupported`.
+
+The adapter (`routeEventAdapter.ts`) now applies:
+
+```
+DIRTYPE 0 → evaluator source_dirtype 0  (all directions → bidirectional; no change)
+DIRTYPE 1 → evaluator source_dirtype 1  (one direction → directional; no change)
+DIRTYPE 2 → evaluator source_dirtype 0  (both directions → bidirectional)
+other     → pass through (evaluator returns direction_unsupported)
+```
+
+The raw `DIRTYPE` from the source dataset is preserved in `PreparedEvent.route_raw_dirtype` for debug display. Marker popups show:
+- `dirtype (src)` — raw DIRTYPE from the source dataset
+- `dirtype (eval)` — evaluator's effective source_dirtype (only shown when different from raw, e.g. DIRTYPE=2 rows show `2→0`)
+
+**WIP — NOT Product Canon.** Applies only to adapted route events; synthetic fixtures are unaffected.
+
+`DIRTYPE` summary:
+- `0` — all directions; evaluator: bidirectional; no conversion
+- `1` — one direction; evaluator: directional; DIRECTION+180 applied (see above)
+- `2` — both directions; evaluator: bidirectional (mapped from 2 → 0)
+
+### Stage 2 SPEED field — target_speed_kmh restriction (Issue #99 P2 fix)
+
+The Datakam/OpenSpeedcam `SPEED` field is an **advisory/source attribute** of the sign or camera record. It records the speed value associated with a particular point in the source dataset. Its semantics depend on the event type:
+
+- For `TYPE=101` (`speed_limit`): `SPEED` is a candidate advisory speed value — the value associated with the speed-limit sign.
+- For cameras (`TYPE=1–5`): `SPEED` may represent the speed the camera is checking for, or a local speed context. It is **not** a RoadAhead speed-limit target.
+- For hazards (`TYPE=100, 102–106`): `SPEED` may represent a recommended caution speed near the hazard. It is **not** a RoadAhead speed-limit target.
+
+**Stage 2 adapter rule (Issue #99 P2 fix — `routeEventAdapter.ts`):**
+
+`PreparedEvent.target_speed_kmh` is set **only** for normalized `speed_limit` events:
+
+```
+speed_limit  → target_speed_kmh = SPEED value
+static_camera → target_speed_kmh = null
+road_bump    → target_speed_kmh = null
+unknown      → target_speed_kmh = null
+```
+
+The raw source `SPEED` value is preserved in `PreparedEvent.route_source_speed_kmh` for **all event types**, for debug/provenance display only. It does not drive target-speed guidance for non-speed_limit events.
+
+**Rationale:** `computeSpeedReference()` emits `approach_target` when the selected primary event has a non-null `target_speed_kmh`. Assigning `target_speed_kmh` from `SPEED` for cameras and hazards caused false `approach_target` guidance — creating speed-reference context from a camera's local speed attribute or a hazard's caution speed. This was incorrect; only a `speed_limit` event should create target-speed guidance.
+
+**Debug visibility:** marker popups and the debug table show the source speed as `speed (src): N km/h (advisory attr · not target)` for non-speed_limit events. The target speed column shows `–` for these events in the debug table; `route_source_speed_kmh` is shown as a secondary note below.
+
+**WIP — NOT Product Canon.** Applies only to adapted route events; synthetic fixtures are unaffected.
+
 ---
 
 ## Stage 2 mapping history

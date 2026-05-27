@@ -44,7 +44,11 @@ import {
   setEventMarkers,
   clearEventMarkers,
   updateEventMarkersVisibility,
+  updateEventMarkerEvaluationStates,
+  type MarkerEvalState,
 } from "./mapView.js";
+import { adaptRouteEventsToPreparedEvents } from "./emulator/routeEventAdapter.js";
+import type { PreparedEvent } from "./contracts/preparedEvent.js";
 import {
   parseRouteRegistry,
   type RouteRegistry,
@@ -258,6 +262,171 @@ function beginRouteLoad(): number {
 /** True when `token` is still the active route load (not superseded). */
 function isRouteLoadCurrent(token: number): boolean {
   return token === routeLoadSeq;
+}
+
+// ---------------------------------------------------------------------------
+// Active event source selection (Issue #99 / Stage 2)
+//
+// Determines which event set drives the applicability/evaluation pipeline.
+//
+// Event source modes:
+//   "synthetic"      — SYNTHETIC_PREPARED_EVENTS (default; synthetic/GeoJSON route)
+//   "prepared_route" — adapted RouteEvent[] from a loaded RouteEventDataset
+//   "no_prepared"    — registry route loaded but no prepared dataset available
+//
+// Selection rules:
+//   1. Registry route + routeEventsState.kind === "loaded" → "prepared_route"
+//   2. Registry route + routeEventsState.kind !== "loaded" → "no_prepared"
+//   3. Synthetic or GeoJSON route (no registry route active)  → "synthetic"
+//
+// "no_prepared" uses an empty event array so stale synthetic events are not
+// shown as if they were route-scoped prepared data. No silent fallback to
+// synthetic events for a registry route with missing/invalid dataset.
+//
+// Synthetic scenario mode uses SYNTHETIC_PREPARED_EVENTS regardless.
+// Selecting a scenario resets activeRegistryRouteId to null.
+//
+// WIP — NOT Product Canon. Stage 2 / Issue #99.
+// ---------------------------------------------------------------------------
+
+/**
+ * Discriminated union for the active event source mode.
+ *
+ * WIP — NOT Product Canon. Stage 2 / Issue #99.
+ *
+ *   "synthetic"      — Using SYNTHETIC_PREPARED_EVENTS (default).
+ *   "prepared_route" — Using adapted RouteEvent[] from a RouteEventDataset.
+ *   "no_prepared"    — Registry route active; no prepared dataset available.
+ */
+type EventSourceMode =
+  | { kind: "synthetic" }
+  | { kind: "prepared_route"; count: number }
+  | { kind: "no_prepared" };
+
+/**
+ * Derive the current event source mode from application state.
+ *
+ * Called by getActiveEventsForSim() and display code.
+ * WIP — NOT Product Canon. Stage 2 / Issue #99.
+ */
+function deriveEventSourceMode(): EventSourceMode {
+  if (
+    activeRegistryRouteId !== null &&
+    routeEventsState.kind === "loaded"
+  ) {
+    return { kind: "prepared_route", count: routeEventsState.dataset.events.length };
+  }
+  if (activeRegistryRouteId !== null) {
+    return { kind: "no_prepared" };
+  }
+  return { kind: "synthetic" };
+}
+
+/**
+ * Return a human-readable event source label for debug/status display.
+ *
+ * WIP — NOT Product Canon. Stage 2 / Issue #99.
+ */
+function eventSourceLabel(mode: EventSourceMode): string {
+  switch (mode.kind) {
+    case "synthetic":
+      return "synthetic fixture";
+    case "prepared_route":
+      return `prepared route events (${mode.count})`;
+    case "no_prepared":
+      return "no prepared events";
+  }
+}
+
+/**
+ * Return the active PreparedEvent array for the applicability/evaluation pipeline.
+ *
+ * Selection:
+ *   - Registry route + loaded prepared dataset → adapted RouteEvent[].
+ *   - Registry route + missing/invalid dataset → [] (empty; no stale synthetic fallback).
+ *   - Synthetic/GeoJSON route → SYNTHETIC_PREPARED_EVENTS.
+ *
+ * Cached adapted events are not stored at module level to keep state simple;
+ * the adaptation is O(n) per render tick but the dataset is bounded (~hundreds).
+ *
+ * WIP — NOT Product Canon. Stage 2 / Issue #99.
+ */
+function getActiveEventsForSim(): PreparedEvent[] {
+  const mode = deriveEventSourceMode();
+  switch (mode.kind) {
+    case "prepared_route":
+      // Registry route with loaded prepared events → adapt RouteEvent[] to PreparedEvent[].
+      // This is the core bridge of Issue #99.
+      if (routeEventsState.kind === "loaded") {
+        return adaptRouteEventsToPreparedEvents(routeEventsState.dataset.events);
+      }
+      return [];
+    case "no_prepared":
+      // Registry route but no prepared dataset — return empty so stale synthetic events
+      // are NOT silently substituted as route-scoped data.
+      return [];
+    case "synthetic":
+    default:
+      return SYNTHETIC_PREPARED_EVENTS;
+  }
+}
+
+/**
+ * Build a map from event_id → MarkerEvalState for the prepared event markers.
+ *
+ * Derives the visual evaluation state for each event from EventSelectionResult:
+ *   EventStatus "selected"   → "primary"
+ *   secondary event id       → "next"
+ *   EventStatus "candidate"  → "eligible"
+ *   Suppressed statuses      → "suppressed"
+ *   Behind/too_far/too_close → "inactive"
+ *   out_of_scope             → "out_of_scope"
+ *
+ * WIP debug overlay — NOT Product Canon. Stage 2 / Issue #99.
+ *
+ * @param state - Current SimulationState from computeSimulationState().
+ * @returns Map from event_id → MarkerEvalState for updateEventMarkerEvaluationStates().
+ */
+function buildMarkerEvalStateMap(
+  state: SimulationState
+): Map<string, MarkerEvalState> {
+  const result = new Map<string, MarkerEvalState>();
+  const secondaryId = state.eventSelection.secondary?.event_id ?? null;
+
+  for (const record of state.eventSelection.records) {
+    let evalState: MarkerEvalState;
+
+    switch (record.status) {
+      case "selected":
+        evalState = "primary";
+        break;
+      case "candidate":
+        // Distinguish next (secondary) from other eligible candidates.
+        evalState = record.event_id === secondaryId ? "next" : "eligible";
+        break;
+      case "behind":
+      case "too_far":
+      case "too_close":
+        evalState = "inactive";
+        break;
+      case "off_route_cross_track":
+      case "direction_conflict":
+      case "direction_unknown":
+      case "direction_unsupported":
+      case "projection_missing":
+        evalState = "suppressed";
+        break;
+      case "out_of_scope":
+        evalState = "out_of_scope";
+        break;
+      default:
+        evalState = "default";
+    }
+
+    result.set(record.event_id, evalState);
+  }
+
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -901,12 +1070,29 @@ function clearSelectedScenario(): void {
 // State computation
 // ---------------------------------------------------------------------------
 
+/**
+ * Compute the current simulation state.
+ *
+ * Uses getActiveEventsForSim() to select the appropriate event source:
+ *   - Synthetic/GeoJSON route → SYNTHETIC_PREPARED_EVENTS (unchanged).
+ *   - Registry route + loaded prepared dataset → adapted RouteEvent[].
+ *   - Registry route + missing/invalid dataset → [] (no events).
+ *
+ * This is the integration point for Issue #99: prepared route events now
+ * drive the applicability/evaluation pipeline when a registry route with a
+ * loaded prepared dataset is active.
+ *
+ * Synthetic scenario behavior is preserved — scenarios reset activeRegistryRouteId
+ * to null, routing back to SYNTHETIC_PREPARED_EVENTS.
+ *
+ * WIP — NOT Product Canon. Stage 2 / Issue #99.
+ */
 function getState(): SimulationState {
   return computeSimulationState(
     routeProgressPct / 100,
     currentSpeedKmh,
     activeRoute,
-    SYNTHETIC_PREPARED_EVENTS,
+    getActiveEventsForSim(),
     EMULATOR_TUNING_DEFAULTS
   );
 }
@@ -973,6 +1159,7 @@ function buildApp(): void {
           <span id="playback-status" class="sim-playback-status">paused</span>
           <select id="playback-multiplier-select" class="sim-multiplier-select"
             title="Playback speed multiplier — scales simulated vehicle speed for faster route traversal. WIP emulator only, not navigation, not ETA.">
+            <option value="10">10&#215;</option>
             <option value="25">25&#215;</option>
             <option value="50">50&#215;</option>
             <option value="100" selected>100&#215;</option>
@@ -1493,6 +1680,7 @@ function render(): void {
   renderScenarioInspector();
   renderEvidenceSnapshot(state);
   renderDebugPanel(state);
+
   // Update the map vehicle marker on every render cycle.
   // Position is projection-derived per-session — not GPS, not provider data.
   // Issue #88 / Stage 2 — spatial evaluation surface only, not navigation.
@@ -1500,6 +1688,16 @@ function render(): void {
     state.vehicleRoutePosition.projected_lat,
     state.vehicleRoutePosition.projected_lon
   );
+
+  // Update prepared event marker evaluation state overlay (Issue #99 / Stage 2).
+  // Only when prepared route events are the active source — synthetic mode
+  // does not push eval states to map markers (no prepared markers exist).
+  //
+  // WIP debug overlay — NOT Product Canon. NOT driver-facing. NOT safety signal.
+  if (deriveEventSourceMode().kind === "prepared_route") {
+    const evalStateMap = buildMarkerEvalStateMap(state);
+    updateEventMarkerEvaluationStates(evalStateMap);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1782,35 +1980,71 @@ function renderOperatorHeader(state: SimulationState): void {
   const summaryEl = document.getElementById("op-summary");
   if (!summaryEl) return;
 
-  const { primary } = state.eventSelection;
+  const { primary, secondary } = state.eventSelection;
   const refState = state.speedReference.state;
   const targetSpeed = state.speedReference.target_speed_kmh;
   const { acceptedCount, suppressedCount, notProcessedCount } =
     getEventSelectionSummary(state);
 
-  // Find the selected primary record to extract its reason code.
+  // Find the selected primary record to extract reason code and distance.
   const primaryRecord = primary
     ? state.eventSelection.records.find((r) => r.event_id === primary.event_id)
     : null;
   const reasonCode = primaryRecord?.applicabilityReason.code ?? null;
+  const primaryDistM = primaryRecord?.distance_m ?? null;
+
+  // Find the secondary record to extract distance.
+  const secondaryRecord = secondary
+    ? state.eventSelection.records.find((r) => r.event_id === secondary.event_id)
+    : null;
+  const secondaryDistM = secondaryRecord?.distance_m ?? null;
 
   // Type-aware display semantics — UI only, no domain logic.
   const primarySemantics = getEventDisplaySemantics(primary?.normalized_type);
 
-  const primaryHtml = primary
+  // Event source mode — shown in summary for traceability (Issue #99 / Stage 2).
+  const evSourceMode = deriveEventSourceMode();
+  const evSourceModeClass =
+    evSourceMode.kind === "prepared_route"
+      ? "op-source-prepared"
+      : evSourceMode.kind === "no_prepared"
+        ? "op-source-no-prepared"
+        : "op-source-synthetic";
+  const evSourceHtml = `
+    <div class="op-summary-item op-summary-item-source">
+      <span class="op-summary-label">Event source</span>
+      <span class="op-summary-value ${evSourceModeClass}">${escapeHtml(eventSourceLabel(evSourceMode))}</span>
+    </div>`;
+
+  const primaryIdHtml = primary
     ? `<code class="op-summary-event-id">${escapeHtml(primary.event_id)}</code>`
     : `<em class="op-summary-none">none</em>`;
 
-  // Show context type advisory label when a primary event is selected.
-  const contextTypeHtml = primary
+  // Primary distance
+  const primaryDistHtml =
+    primaryDistM != null
+      ? `<span class="op-summary-dist">&nbsp;· ${primaryDistM.toFixed(0)} m ahead</span>`
+      : "";
+
+  // Source label for primary event — show source_type_label (primary) and raw_type
+  // per #95 display contract when the event was adapted from a prepared RouteEvent.
+  const primarySourceLabelHtml = primary?.route_source_type_label
     ? `<div class="op-summary-item">
-        <span class="op-summary-label">Context type</span>
-        <span class="op-summary-value op-summary-context-type">${escapeHtml(primarySemantics.primaryAdvisoryLabel)}</span>
+        <span class="op-summary-label">Source label</span>
+        <span class="op-summary-value op-summary-source-label">${escapeHtml(primary.route_source_type_label)}</span>
+        <span class="op-summary-source-raw">&nbsp;(raw: ${escapeHtml(primary.raw_type ?? "—")})</span>
       </div>`
     : "";
 
-  // Target speed: show numeric value for speed_limit; show "no target speed"
-  // advisory for camera / road_bump — no fake speed displayed.
+  // Normalized type context.
+  const normTypeHtml = primary
+    ? `<div class="op-summary-item">
+        <span class="op-summary-label">Norm. type</span>
+        <span class="op-summary-value op-summary-context-type">${escapeHtml(primary.normalized_type)}</span>
+      </div>`
+    : "";
+
+  // Target speed: show numeric value for speed_limit; "no target speed" for others.
   const targetHtml =
     primarySemantics.hasTargetSpeed && targetSpeed != null
       ? `<span class="op-summary-target-speed">${targetSpeed} km/h</span>`
@@ -1829,13 +2063,32 @@ function renderOperatorHeader(state: SimulationState): void {
       </div>`
     : "";
 
+  // Next event summary (secondary candidate) — Issue #99 / Stage 2.
+  let nextHtml = "";
+  if (secondary) {
+    const nextIdHtml = `<code class="op-summary-event-id">${escapeHtml(secondary.event_id)}</code>`;
+    const nextSourceLabel = secondary.route_source_type_label
+      ? `<span class="op-summary-source-label">${escapeHtml(secondary.route_source_type_label)}</span>`
+      : `<span class="op-summary-context-type">${escapeHtml(secondary.normalized_type)}</span>`;
+    const nextDistHtml =
+      secondaryDistM != null
+        ? `&nbsp;· ${secondaryDistM.toFixed(0)} m ahead`
+        : "";
+    nextHtml = `<div class="op-summary-item">
+      <span class="op-summary-label">Next event</span>
+      <span class="op-summary-value">${nextIdHtml} ${nextSourceLabel}${nextDistHtml}</span>
+    </div>`;
+  }
+
   summaryEl.innerHTML = `
     <div class="op-summary-grid">
+      ${evSourceHtml}
       <div class="op-summary-item">
         <span class="op-summary-label">Primary event</span>
-        <span class="op-summary-value">${primaryHtml}</span>
+        <span class="op-summary-value">${primaryIdHtml}${primaryDistHtml}</span>
       </div>
-      ${contextTypeHtml}
+      ${primarySourceLabelHtml}
+      ${normTypeHtml}
       <div class="op-summary-item">
         <span class="op-summary-label">Ref state</span>
         <span class="op-summary-value ${stateClass}">${escapeHtml(refState)}</span>
@@ -1844,6 +2097,7 @@ function renderOperatorHeader(state: SimulationState): void {
         <span class="op-summary-label">Target speed</span>
         <span class="op-summary-value">${targetHtml}</span>
       </div>
+      ${nextHtml}
       <div class="op-summary-item">
         <span class="op-summary-label">Accepted</span>
         <span class="op-summary-value op-count-accepted">${acceptedCount}</span>
@@ -1878,11 +2132,22 @@ function renderOperatorHeader(state: SimulationState): void {
  * lookup maps. Values are identical to the state lookup maps — derived from
  * the same projection pass.
  *
+ * When `activeEvents` is provided (prepared route events mode), the row also
+ * shows source_type_label and raw_type from the adapted PreparedEvent for
+ * traceability per the #95 display contract. (Issue #99 / Stage 2 / WIP)
+ *
  * EMULATOR DEBUG / QA ONLY — not driver-facing output.
  * Per-session derived data — not persisted to base fixture files.
  * (event-applicability Canon truth 13; event-data Canon truth 11)
+ *
+ * @param r - The EventSelectionRecord for this row.
+ * @param activeEvents - Optional map from event_id → PreparedEvent for
+ *   source provenance display. Only set in prepared route mode (Issue #99).
  */
-function buildEventRow(r: EventSelectionRecord): string {
+function buildEventRow(
+  r: EventSelectionRecord,
+  activeEvents?: Map<string, PreparedEvent>
+): string {
   const distStr =
     r.distance_m >= 0
       ? `+${r.distance_m.toFixed(0)} m`
@@ -1924,15 +2189,42 @@ function buildEventRow(r: EventSelectionRecord): string {
   // This provides a secondary visual cue in addition to the group separator.
   const debugRowClass = !ar.is_driver_facing_eligible ? " debug-only-row" : "";
 
+  // Source provenance display for prepared route events (Issue #99 / Stage 2).
+  // Per #95 display contract: source_type_label first, raw_type second, norm type third.
+  const ev = activeEvents?.get(r.event_id);
+  const sourceTypeLabelHtml = ev?.route_source_type_label
+    ? `<br><span class="ev-row-source-label">${escapeHtml(ev.route_source_type_label)}</span>`
+      + `<span class="ev-row-raw-type">&nbsp;(raw:${escapeHtml(ev.raw_type ?? "—")})</span>`
+    : "";
+
+  // Direction provenance display (Issue #99 follow-up — Datakam direction convention).
+  // Shows raw facing direction alongside effective travel direction used by evaluator.
+  // route_raw_facing_direction_deg is only set for adapted route events.
+  // For synthetic fixtures this is undefined and nothing extra is shown.
+  // WIP — NOT Product Canon.
+  const rawFacingDirHtml = ev?.route_raw_facing_direction_deg != null
+    ? `<br><span class="ev-row-dir-facing">facing: ${ev.route_raw_facing_direction_deg}°</span>`
+    : "";
+
+  // Source speed display (Issue #99 P2 fix).
+  // target_speed_kmh is null for non-speed_limit events (camera, hazard, unknown).
+  // route_source_speed_kmh preserves the source SPEED attribute for debug/provenance
+  // display without implying it is a RoadAhead target speed rule.
+  // Only shown in debug table when target_speed_kmh is null and source speed exists.
+  const sourceSpeedNote =
+    r.target_speed_kmh == null && ev?.route_source_speed_kmh != null
+      ? `<br><span class="ev-row-source-speed">src: ${ev.route_source_speed_kmh} km/h <em>(advisory attr, not target)</em></span>`
+      : "";
+
   return `<tr class="event-row-${r.status}${debugRowClass}">
     <td><code>${escapeHtml(r.event_id)}</code></td>
-    <td>${escapeHtml(r.normalized_type)}</td>
-    <td>${r.target_speed_kmh != null ? r.target_speed_kmh : "–"}</td>
+    <td>${escapeHtml(r.normalized_type)}${sourceTypeLabelHtml}</td>
+    <td>${r.target_speed_kmh != null ? r.target_speed_kmh : "–"}${sourceSpeedNote}</td>
     <td class="dist-cell">${distStr}</td>
     <td class="dist-cell proj-derived">${alongStr}</td>
     <td class="dist-cell proj-derived">${crossStr}</td>
     <td class="dist-cell dir-derived">${tangentStr}</td>
-    <td class="dist-cell dir-derived">${srcDirStr}<br><span class="dirtype-label">dirtype=${srcDirtypeStr}</span></td>
+    <td class="dist-cell dir-derived">${srcDirStr}<span class="ev-row-dir-eff-note">&nbsp;(eff.)</span>${rawFacingDirHtml}<br><span class="dirtype-label">dirtype=${srcDirtypeStr}</span></td>
     <td class="dist-cell dir-derived">${deltaStr}</td>
     <td class="dir-derived"><span class="dir-compat-badge ${dcStatusClass}">${escapeHtml(dcStatus)}</span></td>
     <td><span class="event-status event-status-${r.status}">${r.status}</span></td>
@@ -1953,10 +2245,16 @@ function buildEventRow(r: EventSelectionRecord): string {
  *
  * EMULATOR DEBUG / QA ONLY — not driver-facing.
  * Group semantics reflect the Slices 4.1–4.3 WIP baseline only — not Canon.
+ *
+ * @param kind - Group kind (accepted / suppressed / not_processed).
+ * @param records - Records for this group.
+ * @param activeEvents - Optional active event map for source provenance display.
+ *   Only set in prepared route mode (Issue #99 / Stage 2 / WIP).
  */
 function buildGroupRows(
   kind: "accepted" | "suppressed" | "not_processed",
-  records: EventSelectionRecord[]
+  records: EventSelectionRecord[],
+  activeEvents?: Map<string, PreparedEvent>
 ): string {
   if (records.length === 0) return "";
 
@@ -1997,7 +2295,7 @@ function buildGroupRows(
     </td>
   </tr>`;
 
-  return separatorRow + records.map(buildEventRow).join("");
+  return separatorRow + records.map((r) => buildEventRow(r, activeEvents)).join("");
 }
 
 /**
@@ -2075,6 +2373,15 @@ function renderDebugPanel(state: SimulationState): void {
   const vp = state.vehicleRoutePosition;
   const provenance = activeRoute.provenance;
 
+  // Build active event map for source provenance display in event rows.
+  // Only populated in prepared route mode (Issue #99 / Stage 2).
+  const evSourceMode = deriveEventSourceMode();
+  const activeEventsForSim = getActiveEventsForSim();
+  const activeEventsMap: Map<string, PreparedEvent> | undefined =
+    evSourceMode.kind === "prepared_route"
+      ? new Map(activeEventsForSim.map((e) => [e.event_id, e]))
+      : undefined;
+
   // Separate records into reason-kind groups.
   // Uses applicabilityReason.kind from Slice 4.3 / Issue #53.
   const allRecords = state.eventSelection.records;
@@ -2095,19 +2402,19 @@ function renderDebugPanel(state: SimulationState): void {
   // Filter affects table visibility only — selection behavior is unchanged.
   let tableBodyHtml: string;
   if (debugFilter === "accepted") {
-    tableBodyHtml = buildGroupRows("accepted", acceptedRecords);
+    tableBodyHtml = buildGroupRows("accepted", acceptedRecords, activeEventsMap);
   } else if (debugFilter === "suppressed") {
-    tableBodyHtml = buildGroupRows("suppressed", suppressedRecords);
+    tableBodyHtml = buildGroupRows("suppressed", suppressedRecords, activeEventsMap);
   } else if (debugFilter === "not_driver_facing") {
     tableBodyHtml =
-      buildGroupRows("suppressed", suppressedRecords) +
-      buildGroupRows("not_processed", notProcessedRecords);
+      buildGroupRows("suppressed", suppressedRecords, activeEventsMap) +
+      buildGroupRows("not_processed", notProcessedRecords, activeEventsMap);
   } else {
     // "all" — show all groups with separators
     tableBodyHtml =
-      buildGroupRows("accepted", acceptedRecords) +
-      buildGroupRows("suppressed", suppressedRecords) +
-      buildGroupRows("not_processed", notProcessedRecords);
+      buildGroupRows("accepted", acceptedRecords, activeEventsMap) +
+      buildGroupRows("suppressed", suppressedRecords, activeEventsMap) +
+      buildGroupRows("not_processed", notProcessedRecords, activeEventsMap);
   }
 
   if (tableBodyHtml === "") {
@@ -2135,8 +2442,26 @@ function renderDebugPanel(state: SimulationState): void {
     },
   };
 
+  // Event source summary for debug panel header (Issue #99 / Stage 2).
+  const evSourceLabelText = eventSourceLabel(evSourceMode);
+  const evSourceModeClass =
+    evSourceMode.kind === "prepared_route"
+      ? "op-source-prepared"
+      : evSourceMode.kind === "no_prepared"
+        ? "op-source-no-prepared"
+        : "op-source-synthetic";
+  const evSourceBannerHtml =
+    evSourceMode.kind !== "synthetic"
+      ? `<div class="debug-event-source-banner ${evSourceModeClass}">
+          Event source: <strong>${escapeHtml(evSourceLabelText)}</strong>
+          <span class="debug-event-source-note">· WIP debug only · not Canon</span>
+        </div>`
+      : "";
+
   section.innerHTML = `
     <h2>Debug Panel <span class="wip-badge">Emulator QA only — not driver-facing UI</span></h2>
+
+    ${evSourceBannerHtml}
 
     <div class="debug-warning">
       ⚠ All numeric thresholds shown below are <strong>WIP emulator defaults — NOT Product Canon</strong>.
@@ -2542,10 +2867,17 @@ function attachRouteDataPanelListeners(panel: HTMLElement): void {
     }
 
     // Re-render markers with updated visibility (no route/dataset reload).
+    // Pass current eval states so the visual overlay is preserved after filter
+    // toggle (Issue #99 / Stage 2). WIP debug overlay — not driver-facing.
     if (routeEventsState.kind === "loaded") {
+      const currentEvalStates =
+        deriveEventSourceMode().kind === "prepared_route"
+          ? buildMarkerEvalStateMap(getState())
+          : undefined;
       updateEventMarkersVisibility(
         routeEventsState.dataset.events,
-        preparedEventVisibleLabels
+        preparedEventVisibleLabels,
+        currentEvalStates
       );
     }
     // Do NOT call render() here — checkboxes are already in the DOM and
