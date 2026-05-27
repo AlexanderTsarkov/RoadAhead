@@ -35,6 +35,10 @@ import {
 } from "./emulator/simulationState.js";
 import { getRouteLonSpan } from "./emulator/routeProgress.js";
 import type { EventSelectionRecord } from "./emulator/minimalEventSelection.js";
+import {
+  type RouteOrderResult,
+  ROUTE_ORDER_CLEAR_DISTANCE_M,
+} from "./emulator/routeOrderLifecycle.js";
 import { SYNTHETIC_SCENARIOS } from "./emulator/scenarios/syntheticScenarios.js";
 import type { EmulatorScenario } from "./emulator/scenarios/scenarioTypes.js";
 import {
@@ -454,6 +458,67 @@ function buildMarkerEvalStateMap(
         break;
       default:
         evalState = "default";
+    }
+
+    result.set(record.event_id, evalState);
+  }
+
+  return result;
+}
+
+/**
+ * Build a map from event_id → MarkerEvalState using the route-order lifecycle
+ * result for prepared route events.
+ *
+ * Replaces buildMarkerEvalStateMap() for prepared_route mode.
+ * Lifecycle → MarkerEvalState mapping (WIP — NOT Product Canon):
+ *
+ *   primary event               → "primary"
+ *   next event                  → "next"
+ *   active_reaction / passing   → "primary" or "next" if selected; else "eligible"
+ *   notification (eligible)     → "eligible"
+ *   passed_cleared              → "inactive"
+ *   not_applicable (hard-reject)→ per hard_reject_reason:
+ *     direction_conflict/unknown/unsupported → "suppressed"
+ *     off_route_cross_track                 → "suppressed"
+ *     out_of_scope                          → "out_of_scope"
+ *     projection_missing/other              → "suppressed"
+ *
+ * Source-type fill color identity is preserved (no status-color replacement).
+ * WIP debug overlay — NOT Product Canon. Issue #104 / Stage 2.
+ *
+ * @param routeOrderResult - From state.routeOrderResult in prepared_route mode.
+ * @returns Map from event_id → MarkerEvalState.
+ */
+function buildLifecycleMarkerStateMap(
+  routeOrderResult: RouteOrderResult
+): Map<string, MarkerEvalState> {
+  const result = new Map<string, MarkerEvalState>();
+  const primaryId = routeOrderResult.primary?.event_id ?? null;
+  const nextId = routeOrderResult.next?.event_id ?? null;
+
+  for (const record of routeOrderResult.records) {
+    let evalState: MarkerEvalState;
+    const isPrimary = record.event_id === primaryId;
+    const isNext = record.event_id === nextId;
+
+    if (isPrimary) {
+      evalState = "primary";
+    } else if (isNext) {
+      evalState = "next";
+    } else if (record.lifecycle === "not_applicable") {
+      // Hard-rejected: use specific suppression reason to distinguish oos vs suppressed.
+      const reason = record.hard_reject_reason ?? "";
+      if (reason === "event_type_out_of_scope") {
+        evalState = "out_of_scope";
+      } else {
+        evalState = "suppressed";
+      }
+    } else if (record.lifecycle === "passed_cleared") {
+      evalState = "inactive";
+    } else {
+      // notification, active_reaction, passing — visible but not primary/next.
+      evalState = "eligible";
     }
 
     result.set(record.event_id, evalState);
@@ -1725,8 +1790,14 @@ function render(): void {
   renderDiagnosticsPanel(state);
   renderDebugPanel(state);
   // Refresh previous primary/next IDs for next render tick departure detection.
-  diagPrevPrimaryId = state.eventSelection.primary?.event_id ?? null;
-  diagPrevNextId = state.eventSelection.secondary?.event_id ?? null;
+  // Issue #104: use routeOrderResult primary/next for prepared_route mode.
+  if (deriveEventSourceMode().kind === "prepared_route") {
+    diagPrevPrimaryId = state.routeOrderResult.primary?.event_id ?? null;
+    diagPrevNextId = state.routeOrderResult.next?.event_id ?? null;
+  } else {
+    diagPrevPrimaryId = state.eventSelection.primary?.event_id ?? null;
+    diagPrevNextId = state.eventSelection.secondary?.event_id ?? null;
+  }
 
   // Update the map vehicle marker on every render cycle.
   // Position is projection-derived per-session — not GPS, not provider data.
@@ -1740,9 +1811,10 @@ function render(): void {
   // Only when prepared route events are the active source — synthetic mode
   // does not push eval states to map markers (no prepared markers exist).
   //
+  // Issue #104: use lifecycle-based marker states for prepared_route mode.
   // WIP debug overlay — NOT Product Canon. NOT driver-facing. NOT safety signal.
   if (deriveEventSourceMode().kind === "prepared_route") {
-    const evalStateMap = buildMarkerEvalStateMap(state);
+    const evalStateMap = buildLifecycleMarkerStateMap(state.routeOrderResult);
     updateEventMarkerEvaluationStates(evalStateMap);
   }
 }
@@ -2690,50 +2762,82 @@ function renderDebugPanel(state: SimulationState): void {
  * current reason code for the departing event.
  *
  * Called in render() BEFORE updating diagPrevPrimaryId / diagPrevNextId.
- * Reads current state.eventSelection.records to find the new reason for the
- * departed event.
  *
- * WIP diagnostics only — no selection behavior change. Issue #102 / Stage 2.
+ * Issue #104: for prepared_route mode, reads routeOrderResult.records so that
+ * departures reflect the lifecycle model (active_reaction → passed_cleared etc.).
+ * For synthetic mode, reads eventSelection.records as before.
+ *
+ * WIP diagnostics. Issue #102 / Stage 2; updated Issue #104 / Stage 2.
  */
 function updateDiagDepartures(state: SimulationState): void {
-  const currentPrimaryId = state.eventSelection.primary?.event_id ?? null;
-  const currentNextId = state.eventSelection.secondary?.event_id ?? null;
+  const isPreparedRoute = deriveEventSourceMode().kind === "prepared_route";
+
+  const currentPrimaryId = isPreparedRoute
+    ? state.routeOrderResult.primary?.event_id ?? null
+    : state.eventSelection.primary?.event_id ?? null;
+  const currentNextId = isPreparedRoute
+    ? state.routeOrderResult.next?.event_id ?? null
+    : state.eventSelection.secondary?.event_id ?? null;
 
   // Detect primary departure.
-  if (
-    diagPrevPrimaryId !== null &&
-    diagPrevPrimaryId !== currentPrimaryId
-  ) {
-    const depRecord = state.eventSelection.records.find(
-      (r) => r.event_id === diagPrevPrimaryId
-    );
-    if (depRecord) {
-      diagLastPrimaryDeparture = {
-        event_id: depRecord.event_id,
-        distance_m: depRecord.distance_m,
-        reason_code: depRecord.applicabilityReason.code,
-        reason_kind: depRecord.applicabilityReason.kind,
-        status: depRecord.status,
-      };
+  if (diagPrevPrimaryId !== null && diagPrevPrimaryId !== currentPrimaryId) {
+    if (isPreparedRoute) {
+      const depRecord = state.routeOrderResult.records.find(
+        (r) => r.event_id === diagPrevPrimaryId
+      );
+      if (depRecord) {
+        diagLastPrimaryDeparture = {
+          event_id: depRecord.event_id,
+          distance_m: depRecord.signed_distance_m,
+          reason_code: depRecord.applicabilityReason.code,
+          reason_kind: depRecord.applicabilityReason.kind,
+          status: depRecord.lifecycle,
+        };
+      }
+    } else {
+      const depRecord = state.eventSelection.records.find(
+        (r) => r.event_id === diagPrevPrimaryId
+      );
+      if (depRecord) {
+        diagLastPrimaryDeparture = {
+          event_id: depRecord.event_id,
+          distance_m: depRecord.distance_m,
+          reason_code: depRecord.applicabilityReason.code,
+          reason_kind: depRecord.applicabilityReason.kind,
+          status: depRecord.status,
+        };
+      }
     }
   }
 
   // Detect next/secondary departure.
-  if (
-    diagPrevNextId !== null &&
-    diagPrevNextId !== currentNextId
-  ) {
-    const depRecord = state.eventSelection.records.find(
-      (r) => r.event_id === diagPrevNextId
-    );
-    if (depRecord) {
-      diagLastNextDeparture = {
-        event_id: depRecord.event_id,
-        distance_m: depRecord.distance_m,
-        reason_code: depRecord.applicabilityReason.code,
-        reason_kind: depRecord.applicabilityReason.kind,
-        status: depRecord.status,
-      };
+  if (diagPrevNextId !== null && diagPrevNextId !== currentNextId) {
+    if (isPreparedRoute) {
+      const depRecord = state.routeOrderResult.records.find(
+        (r) => r.event_id === diagPrevNextId
+      );
+      if (depRecord) {
+        diagLastNextDeparture = {
+          event_id: depRecord.event_id,
+          distance_m: depRecord.signed_distance_m,
+          reason_code: depRecord.applicabilityReason.code,
+          reason_kind: depRecord.applicabilityReason.kind,
+          status: depRecord.lifecycle,
+        };
+      }
+    } else {
+      const depRecord = state.eventSelection.records.find(
+        (r) => r.event_id === diagPrevNextId
+      );
+      if (depRecord) {
+        diagLastNextDeparture = {
+          event_id: depRecord.event_id,
+          distance_m: depRecord.distance_m,
+          reason_code: depRecord.applicabilityReason.code,
+          reason_kind: depRecord.applicabilityReason.kind,
+          status: depRecord.status,
+        };
+      }
     }
   }
 }
@@ -2742,25 +2846,29 @@ function updateDiagDepartures(state: SimulationState): void {
  * Render the lifecycle/order diagnostics panel into #diag-section.
  *
  * EMULATOR DEBUG / QA UI — NOT THE DRIVER-FACING UI.
- * Diagnostics only — no selection or lifecycle behavior changes.
- * No WIP thresholds are modified. No evaluator logic is changed.
+ * Per-session diagnostics only — no driver-facing output.
+ *
+ * Issue #104 update: for prepared_route mode, shows route-order-first lifecycle
+ * model data (lifecycle phases, clear distance, route order index, pass/clear state).
+ * For synthetic mode, falls back to the old eventSelection-based view.
  *
  * Shows:
  *   1. Event source mode + vehicle state + WIP thresholds (read-only).
- *   2. Primary/next explanation (which event, distance, reason, why closer not primary).
- *   3. Departure tracking (last event that left primary/next, and reason code).
- *   4. Route-ordered event list (sorted ascending by distance_m; ahead first).
+ *   2. Model indicator (lifecycle vs old evaluator).
+ *   3. Primary/next explanation (route-order-first for prepared_route; old for synthetic).
+ *   4. Departure tracking (lifecycle-aware for prepared_route mode).
+ *   5. Route-ordered event list with lifecycle phase column.
  *
- * WIP diagnostics — NOT Product Canon. Issue #102 / Stage 2.
+ * WIP diagnostics — NOT Product Canon. Issue #102 / Stage 2; updated Issue #104 / Stage 2.
  */
 function renderDiagnosticsPanel(state: SimulationState): void {
   const section = document.getElementById("diag-section");
   if (!section) return;
 
   const vp = state.vehicleRoutePosition;
-  const sel = state.eventSelection;
   const evSourceMode = deriveEventSourceMode();
   const cfg = EMULATOR_TUNING_DEFAULTS;
+  const isPreparedRoute = evSourceMode.kind === "prepared_route";
 
   // ---------------------------------------------------------------------------
   // 1. Event source mode + vehicle state + WIP thresholds block
@@ -2777,6 +2885,12 @@ function renderDiagnosticsPanel(state: SimulationState): void {
           <dt>Event source mode</dt>
           <dd><code class="diag-mode-${evSourceKind}">${escapeHtml(evSourceKind)}</code>
             &nbsp;${escapeHtml(evSourceLabel)}</dd>
+          <dt>Selection model</dt>
+          <dd>${isPreparedRoute
+            ? `<strong class="diag-model-lifecycle">Route-order-first lifecycle</strong>
+               <span class="wip-inline">#104 — active_reaction/passing kept visible</span>`
+            : `<em>Old evaluator (synthetic)</em>`}
+          </dd>
           <dt>Vehicle along-route <span class="wip-inline proj-derived-label">per-session</span></dt>
           <dd class="proj-derived">${vp.along_route_m.toFixed(0)} m from route start</dd>
           <dt>Route total length <span class="wip-inline proj-derived-label">per-session</span></dt>
@@ -2791,17 +2905,18 @@ function renderDiagnosticsPanel(state: SimulationState): void {
         <h3 class="diag-h3">WIP Thresholds <span class="wip-inline">not Canon</span></h3>
         <dl class="debug-dl">
           <dt>speed_limit lookahead</dt>
-          <dd>min <strong>${cfg.lookahead.speed_limit.min_display_distance_m} m</strong>
+          <dd>notification &gt; <strong>${cfg.lookahead.speed_limit.min_display_distance_m} m</strong>
             / max <strong>${cfg.lookahead.speed_limit.max_lookahead_m} m</strong></dd>
           <dt>static_camera lookahead</dt>
-          <dd>min <strong>${cfg.lookahead.static_camera.min_display_distance_m} m</strong>
+          <dd>notification &gt; <strong>${cfg.lookahead.static_camera.min_display_distance_m} m</strong>
             / max <strong>${cfg.lookahead.static_camera.max_lookahead_m} m</strong></dd>
           <dt>road_bump lookahead</dt>
-          <dd>min <strong>${cfg.lookahead.road_bump.min_display_distance_m} m</strong>
+          <dd>notification &gt; <strong>${cfg.lookahead.road_bump.min_display_distance_m} m</strong>
             / max <strong>${cfg.lookahead.road_bump.max_lookahead_m} m</strong></dd>
+          <dt>Clear distance (WIP) <span class="wip-inline">not Canon</span></dt>
+          <dd><strong>${ROUTE_ORDER_CLEAR_DISTANCE_M} m</strong> past event → passed_cleared</dd>
           <dt>Cross-track reject</dt>
-          <dd><strong>${cfg.direction_applicability.route_projection_reject_m} m</strong>
-            (route_projection_reject_m WIP)</dd>
+          <dd><strong>${cfg.direction_applicability.route_projection_reject_m} m</strong></dd>
           <dt>Direction accept ≤</dt>
           <dd><strong>${cfg.direction_applicability.direction_delta_accept_deg}°</strong></dd>
           <dt>Direction reject above</dt>
@@ -2811,65 +2926,135 @@ function renderDiagnosticsPanel(state: SimulationState): void {
     </div>`;
 
   // ---------------------------------------------------------------------------
-  // 2. Primary / next explanation + "closer but not primary" detection
+  // 2 & 3. Primary / next explanation and "closer but not primary" detection
   // ---------------------------------------------------------------------------
 
-  const primaryRecord = sel.records.find((r) => r.status === "selected");
-  const secondaryId = sel.secondary?.event_id ?? null;
+  let primaryLine: string;
+  let nextLine: string;
+  let closerNotPrimaryHtml: string;
 
-  // Build the primary/next explanation lines.
-  const primaryLine = primaryRecord
-    ? `<span class="diag-primary-badge">Primary</span>
-       event <code>${escapeHtml(primaryRecord.event_id)}</code>
-       · ${primaryRecord.distance_m.toFixed(0)} m ahead
-       · <code>${escapeHtml(primaryRecord.applicabilityReason.code)}</code>
-       · ${escapeHtml(primaryRecord.normalized_type)}`
-    : `<span class="diag-no-primary">No primary event</span>`;
+  if (isPreparedRoute) {
+    // Route-order-first lifecycle model (Issue #104).
+    const ror = state.routeOrderResult;
+    const primaryRec = ror.records.find(
+      (r) => r.event_id === ror.primary?.event_id
+    );
+    const nextRec = ror.records.find(
+      (r) => r.event_id === ror.next?.event_id
+    );
 
-  const nextRecord = sel.records.find(
-    (r) => r.event_id === secondaryId && secondaryId !== null
-  );
-  const nextLine = nextRecord
-    ? `<span class="diag-next-badge">Next</span>
-       event <code>${escapeHtml(nextRecord.event_id)}</code>
-       · ${nextRecord.distance_m.toFixed(0)} m ahead
-       · <code>${escapeHtml(nextRecord.applicabilityReason.code)}</code>
-       · ${escapeHtml(nextRecord.normalized_type)}`
-    : `<em>No next/secondary event</em>`;
+    primaryLine = primaryRec
+      ? `<span class="diag-primary-badge">Primary</span>
+         event <code>${escapeHtml(primaryRec.event_id)}</code>
+         · ${primaryRec.signed_distance_m >= 0
+             ? `${primaryRec.signed_distance_m.toFixed(0)} m ahead`
+             : `${Math.abs(primaryRec.signed_distance_m).toFixed(0)} m past (${escapeHtml(primaryRec.lifecycle)})`}
+         · lifecycle: <code class="diag-lifecycle-${escapeHtml(primaryRec.lifecycle)}">${escapeHtml(primaryRec.lifecycle)}</code>
+         · <code>${escapeHtml(primaryRec.applicabilityReason.code)}</code>
+         · ${escapeHtml(primaryRec.normalized_type)}
+         · route order #${primaryRec.route_order_index + 1}`
+      : `<span class="diag-no-primary">No primary event (route-order-first lifecycle model)</span>`;
 
-  // Detect closer events that are NOT primary — show their reason.
-  const primaryDistM = primaryRecord?.distance_m ?? Infinity;
-  const closerNotPrimary = sel.records
-    .filter(
-      (r) =>
-        r.distance_m > 0 &&
-        r.distance_m < primaryDistM &&
-        r.event_id !== (primaryRecord?.event_id ?? "") &&
-        r.status !== "out_of_scope"
-    )
-    .sort((a, b) => a.distance_m - b.distance_m);
+    nextLine = nextRec
+      ? `<span class="diag-next-badge">Next</span>
+         event <code>${escapeHtml(nextRec.event_id)}</code>
+         · ${nextRec.signed_distance_m >= 0
+             ? `${nextRec.signed_distance_m.toFixed(0)} m ahead`
+             : `${Math.abs(nextRec.signed_distance_m).toFixed(0)} m past`}
+         · lifecycle: <code class="diag-lifecycle-${escapeHtml(nextRec.lifecycle)}">${escapeHtml(nextRec.lifecycle)}</code>
+         · <code>${escapeHtml(nextRec.applicabilityReason.code)}</code>
+         · ${escapeHtml(nextRec.normalized_type)}
+         · route order #${nextRec.route_order_index + 1}`
+      : `<em>No next event (route-order-first lifecycle model)</em>`;
 
-  const closerNotPrimaryHtml =
-    closerNotPrimary.length > 0
-      ? closerNotPrimary
-          .map(
-            (r) =>
-              `<div class="diag-closer-row">
-                <span class="diag-closer-badge">Closer, not primary</span>
-                event <code>${escapeHtml(r.event_id)}</code>
-                · ${r.distance_m.toFixed(0)} m ahead
-                · reason: <code>${escapeHtml(r.applicabilityReason.code)}</code>
-                (${escapeHtml(r.applicabilityReason.kind)})
-                · status: <code>${escapeHtml(r.status)}</code>
-              </div>`
-          )
-          .join("")
-      : primaryRecord
-        ? `<div class="diag-no-closer"><em>No closer events ahead</em></div>`
-        : `<div class="diag-no-closer"><em>No primary event selected</em></div>`;
+    // Events before primary in route order that are hard-rejected.
+    const primaryIdx = primaryRec?.route_order_index ?? Infinity;
+    const closerRejected = ror.records
+      .filter(
+        (r) =>
+          r.route_order_index < primaryIdx &&
+          r.is_hard_rejected &&
+          r.lifecycle !== "passed_cleared"
+      )
+      .sort((a, b) => a.route_order_index - b.route_order_index);
+
+    closerNotPrimaryHtml =
+      closerRejected.length > 0
+        ? closerRejected
+            .map(
+              (r) =>
+                `<div class="diag-closer-row">
+                  <span class="diag-closer-badge">Earlier in route order, hard-rejected</span>
+                  event <code>${escapeHtml(r.event_id)}</code>
+                  · ${r.signed_distance_m.toFixed(0)} m
+                  · reject: <code>${escapeHtml(r.hard_reject_reason ?? "–")}</code>
+                  · lifecycle: <code class="diag-lifecycle-${escapeHtml(r.lifecycle)}">${escapeHtml(r.lifecycle)}</code>
+                  · route order #${r.route_order_index + 1}
+                </div>`
+            )
+            .join("")
+        : primaryRec
+          ? `<div class="diag-no-closer"><em>No earlier hard-rejected events — primary is truly nearest eligible in route order</em></div>`
+          : `<div class="diag-no-closer"><em>No primary event selected</em></div>`;
+
+  } else {
+    // Old evaluator (synthetic mode — preserved unchanged).
+    const sel = state.eventSelection;
+    const primaryRecord = sel.records.find((r) => r.status === "selected");
+    const secondaryId = sel.secondary?.event_id ?? null;
+
+    primaryLine = primaryRecord
+      ? `<span class="diag-primary-badge">Primary</span>
+         event <code>${escapeHtml(primaryRecord.event_id)}</code>
+         · ${primaryRecord.distance_m.toFixed(0)} m ahead
+         · <code>${escapeHtml(primaryRecord.applicabilityReason.code)}</code>
+         · ${escapeHtml(primaryRecord.normalized_type)}`
+      : `<span class="diag-no-primary">No primary event</span>`;
+
+    const nextRecord = sel.records.find(
+      (r) => r.event_id === secondaryId && secondaryId !== null
+    );
+    nextLine = nextRecord
+      ? `<span class="diag-next-badge">Next</span>
+         event <code>${escapeHtml(nextRecord.event_id)}</code>
+         · ${nextRecord.distance_m.toFixed(0)} m ahead
+         · <code>${escapeHtml(nextRecord.applicabilityReason.code)}</code>
+         · ${escapeHtml(nextRecord.normalized_type)}`
+      : `<em>No next/secondary event</em>`;
+
+    const primaryDistM = primaryRecord?.distance_m ?? Infinity;
+    const closerNotPrimary = sel.records
+      .filter(
+        (r) =>
+          r.distance_m > 0 &&
+          r.distance_m < primaryDistM &&
+          r.event_id !== (primaryRecord?.event_id ?? "") &&
+          r.status !== "out_of_scope"
+      )
+      .sort((a, b) => a.distance_m - b.distance_m);
+
+    closerNotPrimaryHtml =
+      closerNotPrimary.length > 0
+        ? closerNotPrimary
+            .map(
+              (r) =>
+                `<div class="diag-closer-row">
+                  <span class="diag-closer-badge">Closer, not primary</span>
+                  event <code>${escapeHtml(r.event_id)}</code>
+                  · ${r.distance_m.toFixed(0)} m ahead
+                  · reason: <code>${escapeHtml(r.applicabilityReason.code)}</code>
+                  (${escapeHtml(r.applicabilityReason.kind)})
+                  · status: <code>${escapeHtml(r.status)}</code>
+                </div>`
+            )
+            .join("")
+        : primaryRecord
+          ? `<div class="diag-no-closer"><em>No closer events ahead</em></div>`
+          : `<div class="diag-no-closer"><em>No primary event selected</em></div>`;
+  }
 
   // ---------------------------------------------------------------------------
-  // 3. Departure tracking
+  // 4. Departure tracking
   // ---------------------------------------------------------------------------
 
   const fmtDeparture = (dep: DiagDeparture | null, role: string): string => {
@@ -2877,11 +3062,11 @@ function renderDiagnosticsPanel(state: SimulationState): void {
     const distStr =
       dep.distance_m >= 0
         ? `${dep.distance_m.toFixed(0)} m ahead`
-        : `${Math.abs(dep.distance_m).toFixed(0)} m behind`;
+        : `${Math.abs(dep.distance_m).toFixed(0)} m behind/past`;
     return `<span class="diag-departure-badge">Was ${role}</span>
       event <code>${escapeHtml(dep.event_id)}</code>
       · now ${distStr}
-      · status: <code>${escapeHtml(dep.status)}</code>
+      · phase/status: <code>${escapeHtml(dep.status)}</code>
       · reason: <code>${escapeHtml(dep.reason_code)}</code>
       (${escapeHtml(dep.reason_kind)})`;
   };
@@ -2900,7 +3085,7 @@ function renderDiagnosticsPanel(state: SimulationState): void {
         <div class="diag-explanation-row">${nextLine}</div>
       </div>
       <div class="diag-closer-section">
-        <strong>Closer events not primary:</strong>
+        <strong>${isPreparedRoute ? "Hard-rejected events earlier in route order:" : "Closer events not primary:"}</strong>
         ${closerNotPrimaryHtml}
       </div>
       <div class="diag-departure-section">
@@ -2910,56 +3095,161 @@ function renderDiagnosticsPanel(state: SimulationState): void {
     </div>`;
 
   // ---------------------------------------------------------------------------
-  // 4. Route-ordered event list (sorted ascending by distance_m, ahead first)
+  // 5. Route-ordered event list
   // ---------------------------------------------------------------------------
 
-  // Sort: ahead events (distance_m > 0) ascending, then behind (distance_m <= 0) descending.
-  // For each row compute the marker eval state from the existing buildMarkerEvalStateMap logic.
-  const evalStateMap =
-    evSourceMode.kind === "prepared_route"
-      ? buildMarkerEvalStateMap(state)
-      : null;
-
-  // Pre-build active event map for source provenance (source_type_label, source_ref).
   const activeEventsMap = new Map<string, PreparedEvent>(
     getActiveEventsForSim().map((e) => [e.event_id, e])
   );
 
-  const aheadRecords = sel.records
-    .filter((r) => r.distance_m > 0)
-    .sort((a, b) => a.distance_m - b.distance_m);
+  let tableRowsHtml = "";
+  let tableHeaderHtml = "";
 
-  const behindRecords = sel.records
-    .filter((r) => r.distance_m <= 0)
-    .sort((a, b) => b.distance_m - a.distance_m); // closest behind first
+  if (isPreparedRoute) {
+    // Lifecycle model table — route-ordered, ascending along_route_m.
+    const ror = state.routeOrderResult;
+    const evalStateMap = buildLifecycleMarkerStateMap(ror);
+    const primaryId = ror.primary?.event_id ?? null;
+    const nextId = ror.next?.event_id ?? null;
 
-  const buildDiagRow = (
-    r: EventSelectionRecord,
-    idx: number,
-    isAhead: boolean
-  ): string => {
-    const pe = activeEventsMap.get(r.event_id);
-    const sourceLabel = pe?.route_source_type_label ?? "–";
-    const sourceRef = pe?.route_source_ref ?? "–";
-    const rawType = pe?.raw_type ?? r.normalized_type;
-    const markerState = evalStateMap?.get(r.event_id) ?? "–";
+    tableHeaderHtml = `
+      <tr>
+        <th class="diag-th-idx">Route#</th>
+        <th>Event ID</th>
+        <th>Source Ref</th>
+        <th>Source Label</th>
+        <th>raw_type</th>
+        <th>norm type</th>
+        <th>Dist (m) <span class="wip-inline">signed</span></th>
+        <th class="proj-derived-label">Along-route ⊕</th>
+        <th>Lifecycle</th>
+        <th>Reason code</th>
+        <th>Kind</th>
+        <th>Role</th>
+        <th>Marker state</th>
+        <th>Hard-rejected?</th>
+        <th>Reject reason</th>
+      </tr>`;
 
-    const isSelected = r.status === "selected";
-    const isNext = r.event_id === secondaryId;
+    const aheadAndPassingRecords = ror.records.filter(
+      (r) => r.signed_distance_m > -ror.clear_distance_m - 10 && r.lifecycle !== "passed_cleared"
+    );
+    const passedClearedRecords = ror.records.filter((r) => r.lifecycle === "passed_cleared");
 
-    let roleCell = "–";
-    if (isSelected) roleCell = `<span class="diag-role-primary">primary</span>`;
-    else if (isNext) roleCell = `<span class="diag-role-next">next</span>`;
-    else if (r.status === "candidate") roleCell = `<span class="diag-role-eligible">eligible</span>`;
-    else if (r.applicabilityReason.kind === "suppressed") roleCell = `<span class="diag-role-suppressed">suppressed</span>`;
-    else if (r.applicabilityReason.kind === "not_processed") roleCell = `<span class="diag-role-oos">out_of_scope</span>`;
+    const buildLifecycleRow = (r: (typeof ror.records)[0]): string => {
+      const pe = activeEventsMap.get(r.event_id);
+      const sourceLabel = pe?.route_source_type_label ?? "–";
+      const sourceRef = pe?.route_source_ref ?? "–";
+      const rawType = pe?.raw_type ?? r.normalized_type;
+      const markerState = evalStateMap.get(r.event_id) ?? "–";
 
-    const distCell = isAhead
-      ? `+${r.distance_m.toFixed(0)}`
-      : r.distance_m.toFixed(0);
+      const isPrimary = r.event_id === primaryId;
+      const isNext = r.event_id === nextId;
 
-    const rowClass =
-      isSelected
+      let roleCell = "–";
+      if (isPrimary) roleCell = `<span class="diag-role-primary">primary</span>`;
+      else if (isNext) roleCell = `<span class="diag-role-next">next</span>`;
+      else if (r.lifecycle === "notification" || r.lifecycle === "active_reaction" || r.lifecycle === "passing")
+        roleCell = `<span class="diag-role-eligible">visible</span>`;
+      else if (r.lifecycle === "passed_cleared") roleCell = `<span class="diag-role-suppressed">passed_cleared</span>`;
+      else if (r.lifecycle === "not_applicable") roleCell = `<span class="diag-role-suppressed">hard-rejected</span>`;
+
+      const distVal = r.signed_distance_m >= 0
+        ? `+${r.signed_distance_m.toFixed(0)}`
+        : r.signed_distance_m.toFixed(0);
+      const distClass = r.signed_distance_m >= 0 ? "diag-dist-ahead" : "diag-dist-behind";
+
+      const rowClass =
+        isPrimary
+          ? " diag-row-primary"
+          : isNext
+            ? " diag-row-next"
+            : r.lifecycle === "active_reaction"
+              ? " diag-row-active-reaction"
+              : r.lifecycle === "passing"
+                ? " diag-row-passing"
+                : r.is_hard_rejected
+                  ? " diag-row-suppressed"
+                  : "";
+
+      return `
+        <tr class="diag-event-row${rowClass}">
+          <td class="diag-td-idx">#${r.route_order_index + 1}</td>
+          <td class="diag-td-id" title="${escapeHtml(r.event_id)}">${escapeHtml(r.event_id.slice(0, 12))}…</td>
+          <td class="diag-td-ref">${escapeHtml(sourceRef)}</td>
+          <td class="diag-td-label" title="${escapeHtml(sourceLabel)}">${escapeHtml(sourceLabel)}</td>
+          <td class="diag-td-raw">${escapeHtml(String(rawType))}</td>
+          <td class="diag-td-norm">${escapeHtml(r.normalized_type)}</td>
+          <td class="diag-td-dist ${distClass}">${distVal}</td>
+          <td class="diag-td-along proj-derived">${r.projection_along_route_m.toFixed(0)}</td>
+          <td class="diag-td-lifecycle"><code class="diag-lifecycle-${escapeHtml(r.lifecycle)}">${escapeHtml(r.lifecycle)}</code></td>
+          <td class="diag-td-code"><code>${escapeHtml(r.applicabilityReason.code)}</code></td>
+          <td class="diag-td-kind">${escapeHtml(r.applicabilityReason.kind)}</td>
+          <td class="diag-td-role">${roleCell}</td>
+          <td class="diag-td-marker">${escapeHtml(String(markerState))}</td>
+          <td class="diag-td-rejected">${r.is_hard_rejected ? "✗" : "–"}</td>
+          <td class="diag-td-reject-reason">${r.hard_reject_reason ? `<code>${escapeHtml(r.hard_reject_reason)}</code>` : "–"}</td>
+        </tr>`;
+    };
+
+    if (aheadAndPassingRecords.length > 0) {
+      tableRowsHtml += `<tr class="diag-group-sep"><td colspan="15">↑ Ahead / Active / Passing (${aheadAndPassingRecords.length} events) — sorted by route order</td></tr>`;
+      tableRowsHtml += aheadAndPassingRecords.map(buildLifecycleRow).join("");
+    }
+    if (passedClearedRecords.length > 0) {
+      tableRowsHtml += `<tr class="diag-group-sep"><td colspan="15">↓ Passed &amp; Cleared (${passedClearedRecords.length} events)</td></tr>`;
+      tableRowsHtml += passedClearedRecords.map(buildLifecycleRow).join("");
+    }
+    if (tableRowsHtml === "") {
+      tableRowsHtml = `<tr><td colspan="15" class="table-empty-msg">No events in current evaluation set.</td></tr>`;
+    }
+
+  } else {
+    // Old evaluator table (synthetic mode — preserved from Issue #102).
+    const sel = state.eventSelection;
+    const secondaryId = sel.secondary?.event_id ?? null;
+
+    tableHeaderHtml = `
+      <tr>
+        <th class="diag-th-idx">#</th>
+        <th>Event ID</th>
+        <th>Source Ref</th>
+        <th>Source Label</th>
+        <th>raw_type</th>
+        <th>norm type</th>
+        <th>Dist (m)</th>
+        <th class="proj-derived-label">Along-route ⊕</th>
+        <th>Status</th>
+        <th>Reason code</th>
+        <th>Kind</th>
+        <th>Role</th>
+        <th>Marker state</th>
+      </tr>`;
+
+    const aheadRecords = sel.records
+      .filter((r) => r.distance_m > 0)
+      .sort((a, b) => a.distance_m - b.distance_m);
+    const behindRecords = sel.records
+      .filter((r) => r.distance_m <= 0)
+      .sort((a, b) => b.distance_m - a.distance_m);
+
+    const buildOldRow = (r: EventSelectionRecord, idx: number, isAhead: boolean): string => {
+      const pe = activeEventsMap.get(r.event_id);
+      const sourceLabel = pe?.route_source_type_label ?? "–";
+      const sourceRef = pe?.route_source_ref ?? "–";
+      const rawType = pe?.raw_type ?? r.normalized_type;
+      const isSelected = r.status === "selected";
+      const isNext = r.event_id === secondaryId;
+
+      let roleCell = "–";
+      if (isSelected) roleCell = `<span class="diag-role-primary">primary</span>`;
+      else if (isNext) roleCell = `<span class="diag-role-next">next</span>`;
+      else if (r.status === "candidate") roleCell = `<span class="diag-role-eligible">eligible</span>`;
+      else if (r.applicabilityReason.kind === "suppressed") roleCell = `<span class="diag-role-suppressed">suppressed</span>`;
+      else if (r.applicabilityReason.kind === "not_processed") roleCell = `<span class="diag-role-oos">out_of_scope</span>`;
+
+      const distCell = isAhead ? `+${r.distance_m.toFixed(0)}` : r.distance_m.toFixed(0);
+      const rowClass = isSelected
         ? " diag-row-primary"
         : isNext
           ? " diag-row-next"
@@ -2967,88 +3257,84 @@ function renderDiagnosticsPanel(state: SimulationState): void {
             ? " diag-row-suppressed"
             : "";
 
-    return `
-      <tr class="diag-event-row${rowClass}">
-        <td class="diag-td-idx">${idx + 1}</td>
-        <td class="diag-td-id" title="${escapeHtml(r.event_id)}">${escapeHtml(r.event_id.slice(0, 12))}…</td>
-        <td class="diag-td-ref">${escapeHtml(sourceRef)}</td>
-        <td class="diag-td-label" title="${escapeHtml(sourceLabel)}">${escapeHtml(sourceLabel)}</td>
-        <td class="diag-td-raw">${escapeHtml(String(rawType))}</td>
-        <td class="diag-td-norm">${escapeHtml(r.normalized_type)}</td>
-        <td class="diag-td-dist ${isAhead ? "diag-dist-ahead" : "diag-dist-behind"}">${distCell}</td>
-        <td class="diag-td-along proj-derived">${r.projection_along_route_m.toFixed(0)}</td>
-        <td class="diag-td-status"><code>${escapeHtml(r.status)}</code></td>
-        <td class="diag-td-code"><code>${escapeHtml(r.applicabilityReason.code)}</code></td>
-        <td class="diag-td-kind">${escapeHtml(r.applicabilityReason.kind)}</td>
-        <td class="diag-td-role">${roleCell}</td>
-        <td class="diag-td-marker">${escapeHtml(String(markerState))}</td>
-      </tr>`;
-  };
+      return `
+        <tr class="diag-event-row${rowClass}">
+          <td class="diag-td-idx">${idx + 1}</td>
+          <td class="diag-td-id" title="${escapeHtml(r.event_id)}">${escapeHtml(r.event_id.slice(0, 12))}…</td>
+          <td class="diag-td-ref">${escapeHtml(sourceRef)}</td>
+          <td class="diag-td-label" title="${escapeHtml(sourceLabel)}">${escapeHtml(sourceLabel)}</td>
+          <td class="diag-td-raw">${escapeHtml(String(rawType))}</td>
+          <td class="diag-td-norm">${escapeHtml(r.normalized_type)}</td>
+          <td class="diag-td-dist ${isAhead ? "diag-dist-ahead" : "diag-dist-behind"}">${distCell}</td>
+          <td class="diag-td-along proj-derived">${r.projection_along_route_m.toFixed(0)}</td>
+          <td class="diag-td-status"><code>${escapeHtml(r.status)}</code></td>
+          <td class="diag-td-code"><code>${escapeHtml(r.applicabilityReason.code)}</code></td>
+          <td class="diag-td-kind">${escapeHtml(r.applicabilityReason.kind)}</td>
+          <td class="diag-td-role">${roleCell}</td>
+          <td class="diag-td-marker">–</td>
+        </tr>`;
+    };
 
-  let tableRowsHtml = "";
-  if (aheadRecords.length > 0) {
-    tableRowsHtml += `<tr class="diag-group-sep"><td colspan="13">↑ Ahead (${aheadRecords.length} events) — sorted nearest first</td></tr>`;
-    tableRowsHtml += aheadRecords.map((r, i) => buildDiagRow(r, i, true)).join("");
-  }
-  if (behindRecords.length > 0) {
-    tableRowsHtml += `<tr class="diag-group-sep"><td colspan="13">↓ Behind (${behindRecords.length} events) — sorted nearest first</td></tr>`;
-    tableRowsHtml += behindRecords.map((r, i) => buildDiagRow(r, i, false)).join("");
-  }
-  if (tableRowsHtml === "") {
-    tableRowsHtml = `<tr><td colspan="13" class="table-empty-msg">No events in current evaluation set.</td></tr>`;
+    if (aheadRecords.length > 0) {
+      tableRowsHtml += `<tr class="diag-group-sep"><td colspan="13">↑ Ahead (${aheadRecords.length} events) — sorted nearest first</td></tr>`;
+      tableRowsHtml += aheadRecords.map((r, i) => buildOldRow(r, i, true)).join("");
+    }
+    if (behindRecords.length > 0) {
+      tableRowsHtml += `<tr class="diag-group-sep"><td colspan="13">↓ Behind (${behindRecords.length} events) — sorted nearest first</td></tr>`;
+      tableRowsHtml += behindRecords.map((r, i) => buildOldRow(r, i, false)).join("");
+    }
+    if (tableRowsHtml === "") {
+      tableRowsHtml = `<tr><td colspan="13" class="table-empty-msg">No events in current evaluation set.</td></tr>`;
+    }
   }
 
   const eventListHtml = `
     <div class="diag-block diag-block-full">
       <h3 class="diag-h3">Route-Ordered Event List
-        <span class="wip-inline">sorted by along-route distance · per-session · not Canon</span>
+        <span class="wip-inline">sorted by route order · per-session · not Canon</span>
       </h3>
       <p class="debug-note">
-        Events sorted by <strong>signed along-route distance</strong> from vehicle (projection-derived, per-session).
-        Ahead events shown first (ascending distance), then behind events.
-        <strong>source_type_label</strong> is the primary human-readable label.
-        Marker eval state shown only in <code>prepared_route</code> mode.
-        <strong>Diagnostics only — no selection behavior changed.</strong>
+        ${isPreparedRoute
+          ? `<strong>Lifecycle model (Issue #104).</strong>
+             Events sorted by route order (along_route_m ascending).
+             Lifecycle phases: <code>notification</code> = ahead &gt; min_display;
+             <code>active_reaction</code> = close ahead (was too_close — now visible);
+             <code>passing</code> = at/past event, within ${ROUTE_ORDER_CLEAR_DISTANCE_M} m WIP clear distance;
+             <code>passed_cleared</code> = past + beyond clear threshold.
+             Hard-rejected events shown with reject reason.`
+          : `Old evaluator model (synthetic mode). Events sorted by signed distance.
+             <strong>Diagnostics only — no selection behavior changed.</strong>`}
       </p>
       <div class="table-scroll">
         <table class="event-table diag-event-table">
-          <thead>
-            <tr>
-              <th class="diag-th-idx">#</th>
-              <th>Event ID</th>
-              <th>Source Ref</th>
-              <th>Source Label</th>
-              <th>raw_type</th>
-              <th>norm type</th>
-              <th>Dist (m)</th>
-              <th class="proj-derived-label">Along-route ⊕</th>
-              <th>Status</th>
-              <th>Reason code</th>
-              <th>Kind</th>
-              <th>Role</th>
-              <th>Marker state</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRowsHtml}
-          </tbody>
+          <thead>${tableHeaderHtml}</thead>
+          <tbody>${tableRowsHtml}</tbody>
         </table>
       </div>
       <p class="debug-note-small">
         ⊕ per-session derived projection value — not persisted to base fixture files
-        (event-applicability Canon truth 13)
+        (event-applicability Canon truth 13). WIP — NOT Product Canon.
       </p>
     </div>`;
 
+  const badgeText = isPreparedRoute
+    ? "Issue #104 · route-order-first lifecycle baseline · WIP · not Canon"
+    : "Issue #102 · old evaluator (synthetic) · WIP · not Canon";
+
   section.innerHTML = `
     <h2>Lifecycle / Order Diagnostics
-      <span class="wip-badge">Issue #102 · diagnostics only · no selection/lifecycle behavior changes · WIP · not Canon</span>
+      <span class="wip-badge">${escapeHtml(badgeText)}</span>
     </h2>
     <div class="debug-warning">
-      ⚠ Read-only diagnostics. No selection, lifecycle, or threshold changes are made here.
+      ${isPreparedRoute
+        ? `⚠ Route-order-first lifecycle model active (Issue #104).
+           Primary/next use route order with lifecycle phases.
+           Events in active_reaction/passing lifecycle remain primary — no early disappearance.
+           Hard-rejected events (direction/cross-track/out_of_scope) excluded from primary/next.
+           Clear distance: <strong>${ROUTE_ORDER_CLEAR_DISTANCE_M} m</strong> WIP — NOT Product Canon.`
+        : `⚠ Old evaluator model (synthetic mode). Per-session diagnostics only.
+           See <code>docs/research/roadahead-stage2-lifecycle-order-diagnostics.md</code> for findings.`}
       All data is per-session derived — not persisted. WIP emulator debug — NOT Product Canon.
-      Values reflect current evaluator behavior; see
-      <code>docs/research/roadahead-stage2-lifecycle-order-diagnostics.md</code> for findings.
     </div>
     ${vehicleStateHtml}
     ${explanationHtml}

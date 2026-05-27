@@ -61,6 +61,10 @@ import {
   computeSpeedReference,
   type SpeedReferenceContext,
 } from "./speedReference.js";
+import {
+  selectEventsRouteOrder,
+  type RouteOrderResult,
+} from "./routeOrderLifecycle.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -115,6 +119,19 @@ export interface SimulationState {
    * (speed-reference Canon truths 1, 3, 4, 5)
    */
   speedReference: SpeedReferenceContext;
+  /**
+   * Route-order-first lifecycle selection result for prepared route events.
+   *
+   * Implements the baseline fix for ordering instability and early disappearance
+   * described in docs/research/roadahead-stage2-lifecycle-order-diagnostics.md.
+   *
+   * Always computed (even for synthetic mode); in main.ts, only used when
+   * deriveEventSourceMode().kind === "prepared_route" for marker states and
+   * diagnostics. Synthetic scenarios continue using eventSelection.
+   *
+   * WIP — NOT Product Canon. (Issue #104 / Stage 2)
+   */
+  routeOrderResult: RouteOrderResult;
 }
 
 // ---------------------------------------------------------------------------
@@ -159,6 +176,12 @@ export function computeSimulationState(
     config
   );
   const speedReference = computeSpeedReference(eventSelection.primary);
+  const routeOrderResult = selectEventsRouteOrder(
+    events,
+    eventProjections,
+    directionCompatibility,
+    config
+  );
 
   return {
     progress,
@@ -169,5 +192,6 @@ export function computeSimulationState(
     directionCompatibility,
     eventSelection,
     speedReference,
+    routeOrderResult,
   };
 }

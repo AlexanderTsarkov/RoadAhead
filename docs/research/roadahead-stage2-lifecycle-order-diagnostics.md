@@ -366,4 +366,120 @@ Values read from `EMULATOR_TUNING_DEFAULTS` as of Issue #102. The diagnostics UI
 
 ---
 
-_WIP research/diagnostics — not Product Canon. Issue #102 / Stage 2._
+---
+
+## 7. Follow-up Implementation Baseline — Issue #104 / Stage 2
+
+**Status:** WIP implementation — NOT Product Canon  
+**Issue:** #104 — Stage 2 — route-order-first selection and close-range lifecycle baseline  
+**Parent issues:** #101, #86, #17  
+**Follows:** #102 / PR #103 — diagnostics-only research  
+**Date:** 2026-05-27  
+
+This section documents the behavioral baseline introduced in Issue #104. Unlike #102 (diagnostics-only), #104 changes evaluation behavior for prepared route events.
+
+---
+
+### 7.1 What Changed
+
+#### New file: `src/emulator/routeOrderLifecycle.ts`
+
+A new WIP layer (`selectEventsRouteOrder()`) applies route-order-first selection with lifecycle phases for prepared route events only. The existing `selectEvents()` from `minimalEventSelection.ts` is preserved unchanged and still drives synthetic scenario sweeps.
+
+#### Behavioral changes for prepared_route mode:
+
+| Before (#102 baseline) | After (#104 baseline) |
+|---|---|
+| Filter each event individually → sort survivors → select primary | Sort all events by route order → assign lifecycle phase → select primary/next from stable route order |
+| `too_close` (inside `min_display_distance_m`) → suppressed → event disappears from primary | `active_reaction` phase → event stays visible as primary/next through close range |
+| No phase for at/past event point | `passing` phase: -30 m to 0 m → event stays visible through pass |
+| Event removed from display at 175–250 m ahead (type-dependent) | Event removed only after vehicle is 30 m past event (WIP clear threshold) |
+| A farther event can become primary when closer event is suppressed by `too_close` | Primary is always the nearest route-ordered eligible event; `active_reaction`/`passing` do not remove from eligibility |
+
+#### Synthetic scenarios: unchanged
+
+Synthetic scenarios continue to use `state.eventSelection` (from `selectEvents()`). The `routeOrderResult` field is added to `SimulationState` but is not used by scenario checks. Scenario sweep results should be identical to pre-#104 behavior.
+
+---
+
+### 7.2 Lifecycle Phases
+
+WIP phases — NOT Product Canon. All distance values from `EMULATOR_TUNING_DEFAULTS` (not Canon).
+
+| Phase | Distance condition | Notes |
+|---|---|---|
+| `notification` | `signed_distance_m > min_display_distance_m` | Upcoming; visible; was "within window" before |
+| `active_reaction` | `0 < signed_distance_m ≤ min_display_distance_m` | Close ahead; was `too_close` / `inside_min_display_window` — now kept visible |
+| `passing` | `-30 m ≤ signed_distance_m ≤ 0` | At/past event point; within WIP clear distance hysteresis |
+| `passed_cleared` | `signed_distance_m < -30 m` | Past clear threshold; removed from primary/next |
+| `not_applicable` | Hard filter applied | direction/cross-track/out_of_scope rejected |
+
+WIP clear distance: **30 m** past event point. Conservative default. Not user-editable in #104.
+
+---
+
+### 7.3 Hard Filters vs Soft States
+
+Hard filters exclude events from primary/next selection:
+
+- `out_of_scope` (type not in scope)
+- `projection_missing` (no route projection available)
+- `off_route_cross_track` (cross_track_m > WIP rejection threshold)
+- `direction_conflict` (clearly incompatible direction)
+- `direction_unknown` (direction could not be evaluated — conservative suppression retained)
+- `direction_unsupported` (dirtype not handled)
+- `missing_direction_record` (no direction record)
+- `passed_cleared` (past event + beyond 30 m WIP clear threshold)
+
+Soft states (do NOT prevent primary/next selection):
+
+- `notification` — ahead, upcoming
+- `active_reaction` — close ahead (was `too_close` in old model)
+- `passing` — at/past event, within clear distance
+
+---
+
+### 7.4 Route-Order-First vs Old Survivor-Sort
+
+**Old model:**
+```
+for each event (in dataset array order):
+  → filter (too_close, too_far, direction, cross_track) → keep or reject
+sort surviving candidates ascending by distance_m
+primary = first survivor
+```
+
+**New lifecycle model:**
+```
+for each event:
+  → hard reject? (direction/cross_track/out_of_scope) → not_applicable
+  → assign lifecycle phase from signed_distance_m
+
+sort all records by projection_along_route_m ascending (route order)
+assign route_order_index
+
+eligible = records where lifecycle ∈ {notification, active_reaction, passing}
+primary = eligible[0]  (first in route order)
+next    = eligible[1]  (second in route order)
+```
+
+Key difference: the old model filtered first, then sorted. The new model sorts first, then selects from non-rejected records. This means:
+
+- A closer event in `active_reaction` (was `too_close`) is now primary, not displaced by a farther event.
+- A closer event in `passing` (was `behind`) remains primary until the clear threshold.
+- A closer event that is `not_applicable` (direction/cross_track) is still excluded, and the next route-ordered eligible event becomes primary — but this is explicitly visible in diagnostics.
+
+---
+
+### 7.5 What Remains WIP / Unresolved
+
+- **`direction_unknown` still hard-rejects:** Conservative behavior retained. If a Datakam event has null direction, it is `not_applicable` in the lifecycle model. This may over-suppress events on routes where dirtype=0 events are common. Resolution: later child issue under #101.
+- **No speed-aware braking model:** close-range lifecycle phase boundaries are distance-only, not speed × time. Deferred.
+- **No tuning panel:** `min_display_distance_m` and `clear_distance_m` are not user-editable. Deferred.
+- **Clear distance is fixed at 30 m:** conservative default, not validated. May need per-type tuning.
+- **Synthetic scenarios** still use the old evaluator. Mixed-mode behavior (lifecycle for Datakam, old for synthetic) is correct but distinct.
+- **Three-circle driver-facing display** still reads from `eventSelection.primary` (old model). Issue #101 / later slice to wire lifecycle model to driver-facing display.
+
+---
+
+_WIP research/diagnostics — not Product Canon. Issue #102 / Stage 2; updated Issue #104 / Stage 2._

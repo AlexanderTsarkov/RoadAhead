@@ -88,6 +88,14 @@ export type ApplicabilityReasonKind =
  *                                Event is off-route; suppressed from driver-facing selection
  *                                before direction compatibility is evaluated.
  *                                WIP / not Canon. (Issue #67 baseline)
+ *
+ * Route-order / lifecycle codes (Issue #104 / Stage 2):
+ *   route_order_primary        — selected as primary via route-order-first lifecycle model.
+ *   route_order_next           — selected as next via route-order-first lifecycle model.
+ *   lifecycle_visible          — visible in route-order queue; not primary or next;
+ *                                lifecycle is notification, active_reaction, or passing.
+ *   lifecycle_passed_cleared   — event passed and beyond WIP clear distance threshold;
+ *                                removed from primary/next selection.
  */
 export type ApplicabilityReasonCode =
   | "selected_primary"
@@ -101,7 +109,11 @@ export type ApplicabilityReasonCode =
   | "event_type_out_of_scope"
   | "missing_projection"
   | "missing_direction_record"
-  | "route_projection_cross_track_rejected";
+  | "route_projection_cross_track_rejected"
+  | "route_order_primary"
+  | "route_order_next"
+  | "lifecycle_visible"
+  | "lifecycle_passed_cleared";
 
 /**
  * Structured applicability suppression / acceptance reason.
@@ -219,6 +231,26 @@ const REASON_TABLE: Record<
   route_projection_cross_track_rejected: {
     kind: "suppressed",
     label: "route_projection_cross_track_rejected",
+    is_driver_facing_eligible: false,
+  },
+  route_order_primary: {
+    kind: "accepted",
+    label: "route_order_primary",
+    is_driver_facing_eligible: true,
+  },
+  route_order_next: {
+    kind: "accepted",
+    label: "route_order_next",
+    is_driver_facing_eligible: true,
+  },
+  lifecycle_visible: {
+    kind: "accepted",
+    label: "lifecycle_visible",
+    is_driver_facing_eligible: true,
+  },
+  lifecycle_passed_cleared: {
+    kind: "suppressed",
+    label: "lifecycle_passed_cleared",
     is_driver_facing_eligible: false,
   },
 };

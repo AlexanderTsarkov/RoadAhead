@@ -3021,3 +3021,26 @@ code.diag-mode-no_prepared     { color: #f87171; }
   padding: 4px 6px;
   border-top: 2px solid #2d4263;
 }
+
+/* Issue #104 — Lifecycle row styles */
+.diag-row-active-reaction { background: #1a1f0e; }
+.diag-row-passing         { background: #1f120a; }
+
+/* Lifecycle phase cell color coding — WIP — NOT Product Canon */
+.diag-td-lifecycle code { font-size: 0.68rem; font-weight: 600; }
+code.diag-lifecycle-notification    { color: #a3e635; }
+code.diag-lifecycle-active_reaction { color: #facc15; }
+code.diag-lifecycle-passing         { color: #fb923c; }
+code.diag-lifecycle-passed_cleared  { color: #6b7280; }
+code.diag-lifecycle-not_applicable  { color: #ef4444; }
+
+/* Route-order lifecycle column cells */
+.diag-td-lifecycle  { text-align: center; }
+.diag-td-rejected   { text-align: center; font-size: 0.75rem; }
+.diag-td-reject-reason code { font-size: 0.65rem; color: #ef4444; }
+
+/* Model indicator in diagnostics header */
+.diag-model-lifecycle {
+  color: #a3e635;
+  font-weight: 700;
+}
