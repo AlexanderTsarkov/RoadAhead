@@ -107,19 +107,37 @@ let vehicleMarker: L.CircleMarker | null = null;
 let eventMarkersLayer: L.LayerGroup | null = null;
 
 /**
- * Map from RouteEvent.id → CircleMarker instance (Issue #99 / Stage 2).
+ * Cached marker ref entry: the Leaflet CircleMarker plus the originating
+ * RouteEvent. Both are needed so that updateEventMarkerEvaluationStates()
+ * can call setPopupContent() with current eval state, keeping popup content
+ * in sync with marker border/opacity on every render tick.
+ *
+ * EMULATOR INTERNAL — NOT Product Canon. Stage 2 / Issue #99.
+ */
+interface MarkerRef {
+  marker: L.CircleMarker;
+  /** RouteEvent that produced this marker — used for popup re-generation. */
+  event: RouteEvent;
+}
+
+/**
+ * Map from RouteEvent.id → MarkerRef (Issue #99 / Stage 2).
  *
  * Populated by setEventMarkers() and cleared by clearEventMarkers().
- * Used by updateEventMarkerEvaluationStates() to call setStyle() on existing
- * markers without recreating them — avoids LayerGroup churn on every render.
+ * Used by updateEventMarkerEvaluationStates() to call setStyle() and
+ * setPopupContent() on existing markers without recreating them.
  *
  * Keys are RouteEvent.id values, which also serve as PreparedEvent.event_id
  * in the adapted events (via routeEventAdapter.ts). The evalStateMap passed
  * to updateEventMarkerEvaluationStates() uses the same id values as keys.
  *
+ * Storing the RouteEvent alongside the marker allows popup re-generation from
+ * the same data without rebuilding the DOM element — only the popup HTML is
+ * refreshed via setPopupContent(). Fill color and geometry are unchanged.
+ *
  * EMULATOR INTERNAL — NOT Product Canon. Stage 2 / Issue #99.
  */
-let eventMarkerRefs: Map<string, L.CircleMarker> = new Map();
+let eventMarkerRefs: Map<string, MarkerRef> = new Map();
 
 // ---------------------------------------------------------------------------
 // Evaluation state visual style map (Issue #99 / Stage 2)
@@ -556,7 +574,9 @@ export function setEventMarkers(
     });
 
     eventMarkersLayer.addLayer(marker);
-    eventMarkerRefs.set(ev.id, marker);
+    // Store marker + originating event so updateEventMarkerEvaluationStates()
+    // can regenerate popup HTML with the current eval state on each render tick.
+    eventMarkerRefs.set(ev.id, { marker, event: ev });
   }
 }
 
@@ -635,14 +655,23 @@ export function updateEventMarkersVisibility(
 export function updateEventMarkerEvaluationStates(
   evalStates: Map<string, MarkerEvalState>
 ): void {
-  for (const [eventId, marker] of eventMarkerRefs) {
+  for (const [eventId, ref] of eventMarkerRefs) {
     const state = evalStates.get(eventId) ?? "default";
     const style = getEvalStateStyle(state);
-    marker.setStyle({
+
+    // Update marker visual style (border / opacity).
+    ref.marker.setStyle({
       color: style.color,
       weight: style.weight,
       fillOpacity: style.fillOpacity,
     });
+
+    // Keep popup content in sync with the current eval state.
+    // Without this, popup shows stale/initial state while marker border reflects
+    // the current evaluation result. setPopupContent() does not reopen the popup
+    // or cause layout churn — it only patches the existing DOM node (or queues
+    // the update if the popup is closed). No markers are recreated.
+    ref.marker.setPopupContent(buildEventPopupHtml(ref.event, state));
   }
 }
 
