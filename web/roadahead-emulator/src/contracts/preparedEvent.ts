@@ -170,4 +170,25 @@ export interface PreparedEvent {
    * WIP — NOT Product Canon.
    */
   route_source_ref?: string;
+
+  /**
+   * Raw source-facing direction from the Datakam/OpenSpeedcam DIRECTION field.
+   * This is the direction the sign/camera is FACING (toward approaching vehicles),
+   * NOT the vehicle travel direction for which the event applies.
+   *
+   * Only set for adapted route events (Issue #99 follow-up). Undefined for
+   * synthetic fixtures — not affected by Datakam direction convention.
+   *
+   * Datakam/OpenSpeedcam direction convention (Stage 2 WIP — not Product Canon):
+   *   source_facing_direction_deg = RouteEvent.direction_deg
+   *   applicable_vehicle_travel_direction_deg = (direction_deg + 180) % 360
+   *
+   * The evaluator uses source_direction_deg (which is the effective travel
+   * direction after the adapter applies the 180° inversion). This raw facing
+   * direction is preserved for debug display only.
+   *
+   * WIP — NOT Product Canon. Source semantics not globally verified.
+   * (event-applicability Canon truth 8; direction-applicability research §3.E)
+   */
+  route_raw_facing_direction_deg?: number;
 }

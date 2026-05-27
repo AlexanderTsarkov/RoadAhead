@@ -115,6 +115,29 @@ This is WIP source-semantics evidence only. It has not been proven globally. Ind
 - `1` — one-directional (one `DIRECTION` arrow in the QA viewer)
 - `2` — bidirectional (two opposite arrows in the QA viewer)
 
+### Stage 2 emulator implementation (Issue #99 follow-up)
+
+**Owner/manual QA confirmed** the source direction convention for the Rostov1 route: `DIRECTION` is where the sign or camera is **facing** (generally toward approaching vehicles). It is not the vehicle travel direction for which the event applies.
+
+The Stage 2 emulator (`web/roadahead-emulator`) now implements this convention in the prepared route event adapter (`src/emulator/routeEventAdapter.ts`):
+
+```
+source_facing_direction_deg = RouteEvent.direction_deg       (raw DIRECTION from dataset)
+applicable_vehicle_travel_direction_deg = (source_facing_direction_deg + 180) % 360
+```
+
+The **effective vehicle travel direction** is passed to the existing `directionCompatibility.ts` evaluator as `PreparedEvent.source_direction_deg`. The **raw facing direction** is preserved in `PreparedEvent.route_raw_facing_direction_deg` for debug display only.
+
+This convention applies **only to adapted route events** (Datakam/OpenSpeedcam prepared datasets). Synthetic fixture `PreparedEvent`s used for scenario testing are **not affected**.
+
+Debug visibility: marker popups show both values:
+- `facing dir (src)` — raw `DIRECTION` value from the dataset
+- `travel dir (eff.)` — computed `(DIRECTION + 180) % 360` used by the evaluator
+
+**WIP — NOT Product Canon.** This is source-semantics handling based on manual QA observation. It has not been globally verified across all route segments and event types. Do not promote to Canon without a wider systematic verification.
+
+Manual QA observation that motivated this fix: a `dangerous_turn` event before a curve was incorrectly suppressed by the direction compatibility check, while a later `dangerous_turn` near/after the same curve was selected. This pattern is consistent with the evaluator comparing the route heading directly against the source-facing direction (which is approximately 180° opposite to the travel heading). After applying the `(DIRECTION + 180) % 360` inversion, the before-curve event is no longer suppressed solely by the direction mismatch.
+
 ---
 
 ## Stage 2 mapping history

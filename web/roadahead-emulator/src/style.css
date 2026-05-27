@@ -2790,3 +2790,19 @@ code {
 .ev-popup-eval-inactive   { background: #374151; color: #9ca3af; }
 .ev-popup-eval-out_of_scope { background: #1f2937; color: #6b7280; }
 .ev-popup-eval-default    { background: #1f2937; color: #9ca3af; }
+
+/* Popup — direction display (Issue #99 follow-up — Datakam direction convention) */
+.ev-popup-dir-note {
+  color: #64748b;
+  font-size: 0.68rem;
+}
+
+/* Debug table — facing direction (raw) and effective direction note */
+.ev-row-dir-facing {
+  font-size: 0.68rem;
+  color: #94a3b8;
+}
+.ev-row-dir-eff-note {
+  font-size: 0.68rem;
+  color: #64748b;
+}

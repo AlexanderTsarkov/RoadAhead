@@ -141,7 +141,19 @@ interface EvalStateStyle {
   fillOpacity: number; // fill opacity (source-type fill color is preserved)
 }
 
-/** Style lookup by MarkerEvalState. WIP — NOT Product Canon. */
+/**
+ * Style lookup by MarkerEvalState. WIP — NOT Product Canon.
+ *
+ * Opacity values are intentionally kept readable for QA inspection:
+ *   primary / next / eligible — near full opacity; primary has gold border.
+ *   suppressed — visible but clearly dimmed (0.55) so candidate layer stays readable.
+ *   inactive / out_of_scope — dim but not invisible (0.45); candidate observations
+ *     must remain inspectable on the map at normal zoom.
+ *   default — full opacity; shown when no evaluation is active (synthetic mode).
+ *
+ * Fill color (source-type identity) is always preserved; only border and opacity change.
+ * (Issue #99 follow-up — manual QA marker readability adjustment)
+ */
 const EVAL_STATE_STYLES: Record<MarkerEvalState, EvalStateStyle> = {
   primary: {
     color: "#FFD700", // gold border — primary event
@@ -161,17 +173,17 @@ const EVAL_STATE_STYLES: Record<MarkerEvalState, EvalStateStyle> = {
   suppressed: {
     color: "#9ca3af", // gray border — suppressed by direction/cross-track
     weight: 1,
-    fillOpacity: 0.35,
+    fillOpacity: 0.55, // raised from 0.35 — suppressed candidates must remain inspectable
   },
   inactive: {
-    color: "#d1d5db", // light gray border — behind / too far / too close
+    color: "#9ca3af", // gray border — behind / too far / too close
     weight: 1,
-    fillOpacity: 0.2,
+    fillOpacity: 0.45, // raised from 0.20 — inactive candidates must remain visible at normal zoom
   },
   out_of_scope: {
-    color: "#d1d5db", // light gray border — unknown type, out of scope
+    color: "#9ca3af", // gray border — unknown type, out of scope
     weight: 1,
-    fillOpacity: 0.25,
+    fillOpacity: 0.45, // raised from 0.25 — must remain visible as candidate observation
   },
   default: {
     color: "#ffffff",  // white border — no evaluation state (synthetic mode)
@@ -270,11 +282,19 @@ function escapeHtmlMapView(s: string | number | null | undefined): string {
  *   3. normalized type (coarse emulator context only)
  *   4. eval state (Issue #99 — WIP debug, shown when available)
  *   5. speed_kmh
- *   6. dirtype / direction_deg
- *   7. source ref / id
- *   8. distance_to_route_m
- *   9. projected_route_distance_m
- *  10. lon / lat
+ *   6. dirtype
+ *   7. source facing direction (raw DIRECTION from dataset)
+ *   8. effective travel direction (facing + 180) % 360 — WIP Datakam convention
+ *   9. source ref / id
+ *  10. distance_to_route_m
+ *  11. projected_route_distance_m
+ *  12. lon / lat
+ *
+ * Direction display (Issue #99 follow-up — Datakam convention):
+ *   Datakam/OpenSpeedcam DIRECTION = sign/camera facing direction (toward
+ *   approaching vehicles). The applicable vehicle travel direction is opposite.
+ *   Both are shown for QA traceability.
+ *   WIP — NOT Product Canon.
  *
  * EMULATOR DEBUG / QA POPUP — NOT THE DRIVER-FACING UI.
  * NOT Product Canon. Candidate source observations only.
@@ -297,6 +317,14 @@ function buildEventPopupHtml(
       ? `<tr><td>eval state</td><td><span class="ev-popup-eval-state ev-popup-eval-${escapeHtmlMapView(evalState)}">${escapeHtmlMapView(evalState)}</span> <em class="ev-popup-eval-note">WIP · debug only</em></td></tr>`
       : "";
 
+  // Direction display (Issue #99 follow-up — Datakam/OSC direction convention).
+  // DIRECTION = sign/camera facing direction (toward approaching vehicles).
+  // Effective vehicle travel direction = (DIRECTION + 180) % 360.
+  // Both are shown so QA can verify the direction inversion applied by the adapter.
+  // WIP — NOT Product Canon. Source semantics not globally verified.
+  const facingDirDeg = ev.direction_deg;
+  const effectiveTravelDirDeg = (facingDirDeg + 180) % 360;
+
   return `
     <div class="ev-popup">
       <div class="ev-popup-header">
@@ -310,7 +338,8 @@ function buildEventPopupHtml(
         ${evalStateRow}
         <tr><td>speed</td><td>${ev.speed_kmh != null ? escapeHtmlMapView(ev.speed_kmh) + " km/h" : "—"}</td></tr>
         <tr><td>dirtype</td><td>${escapeHtmlMapView(ev.dirtype)}</td></tr>
-        <tr><td>direction</td><td>${escapeHtmlMapView(ev.direction_deg)}°</td></tr>
+        <tr><td>facing dir (src)</td><td>${escapeHtmlMapView(facingDirDeg)}° <em class="ev-popup-dir-note">raw DIRECTION · sign/camera facing</em></td></tr>
+        <tr><td>travel dir (eff.)</td><td><strong>${escapeHtmlMapView(effectiveTravelDirDeg)}°</strong> <em class="ev-popup-dir-note">(facing+180)%360 · WIP Datakam conv.</em></td></tr>
         <tr><td>id / ref</td><td>${escapeHtmlMapView(ev.id)} / ${escapeHtmlMapView(ev.source_ref)}</td></tr>
         <tr><td>dist to route</td><td>${escapeHtmlMapView(ev.distance_to_route_m.toFixed(1))} m</td></tr>
         <tr><td>proj. route pos</td><td>${projKm}</td></tr>
@@ -494,7 +523,7 @@ export function setEventMarkers(
     const evalStyle = getEvalStateStyle(evalState);
 
     const marker = L.circleMarker([ev.lat, ev.lon], {
-      radius: 6,
+      radius: 7, // raised from 6 — markers must be visible at normal zoom without hunting
       color: evalStyle.color,
       weight: evalStyle.weight,
       fillColor,

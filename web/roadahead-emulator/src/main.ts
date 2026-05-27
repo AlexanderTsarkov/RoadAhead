@@ -1159,6 +1159,7 @@ function buildApp(): void {
           <span id="playback-status" class="sim-playback-status">paused</span>
           <select id="playback-multiplier-select" class="sim-multiplier-select"
             title="Playback speed multiplier — scales simulated vehicle speed for faster route traversal. WIP emulator only, not navigation, not ETA.">
+            <option value="10">10&#215;</option>
             <option value="25">25&#215;</option>
             <option value="50">50&#215;</option>
             <option value="100" selected>100&#215;</option>
@@ -2196,6 +2197,15 @@ function buildEventRow(
       + `<span class="ev-row-raw-type">&nbsp;(raw:${escapeHtml(ev.raw_type ?? "—")})</span>`
     : "";
 
+  // Direction provenance display (Issue #99 follow-up — Datakam direction convention).
+  // Shows raw facing direction alongside effective travel direction used by evaluator.
+  // route_raw_facing_direction_deg is only set for adapted route events.
+  // For synthetic fixtures this is undefined and nothing extra is shown.
+  // WIP — NOT Product Canon.
+  const rawFacingDirHtml = ev?.route_raw_facing_direction_deg != null
+    ? `<br><span class="ev-row-dir-facing">facing: ${ev.route_raw_facing_direction_deg}°</span>`
+    : "";
+
   return `<tr class="event-row-${r.status}${debugRowClass}">
     <td><code>${escapeHtml(r.event_id)}</code></td>
     <td>${escapeHtml(r.normalized_type)}${sourceTypeLabelHtml}</td>
@@ -2204,7 +2214,7 @@ function buildEventRow(
     <td class="dist-cell proj-derived">${alongStr}</td>
     <td class="dist-cell proj-derived">${crossStr}</td>
     <td class="dist-cell dir-derived">${tangentStr}</td>
-    <td class="dist-cell dir-derived">${srcDirStr}<br><span class="dirtype-label">dirtype=${srcDirtypeStr}</span></td>
+    <td class="dist-cell dir-derived">${srcDirStr}<span class="ev-row-dir-eff-note">&nbsp;(eff.)</span>${rawFacingDirHtml}<br><span class="dirtype-label">dirtype=${srcDirtypeStr}</span></td>
     <td class="dist-cell dir-derived">${deltaStr}</td>
     <td class="dir-derived"><span class="dir-compat-badge ${dcStatusClass}">${escapeHtml(dcStatus)}</span></td>
     <td><span class="event-status event-status-${r.status}">${r.status}</span></td>
