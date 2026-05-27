@@ -101,8 +101,19 @@ export interface PreparedEvent {
   lat: number;
 
   /**
-   * Advisory target speed in km/h. Required for speed_limit; nullable for
-   * other types that do not carry a target speed.
+   * Advisory target speed in km/h.
+   *
+   * Set ONLY for speed_limit normalized events. Null for all other event
+   * types (static_camera, road_bump, unknown).
+   *
+   * Cameras and hazards carry a source SPEED attribute from Datakam/
+   * OpenSpeedcam, but that is an advisory/source attribute of the sign or
+   * camera record — it is NOT a RoadAhead target speed rule. The evaluator
+   * pipeline may only derive approach_target guidance from a speed_limit event.
+   *
+   * Source speed for non-speed_limit events is preserved separately in
+   * route_source_speed_kmh (if adapted from a RouteEvent) for debug/provenance
+   * display — it does NOT drive target-speed guidance.
    *
    * This value is advisory guidance context only — not a legal speed-limit
    * authority and not safety-certified. It is sourced from the prepared
@@ -153,6 +164,27 @@ export interface PreparedEvent {
   // NOT used by the evaluation pipeline (projection, direction, selection).
   // WIP — NOT Product Canon.
   // ---------------------------------------------------------------------------
+
+  /**
+   * Source SPEED value from Datakam/OpenSpeedcam, in km/h.
+   * Only set for adapted route events (non-null from RouteEvent.speed_kmh).
+   * Null if the source had no speed value, undefined for synthetic fixtures.
+   *
+   * This field is for debug/provenance display only. It is an advisory/source
+   * attribute of the sign or camera record and does NOT drive target-speed
+   * guidance for any event type.
+   *
+   * For speed_limit events, this matches target_speed_kmh. For all other event
+   * types (static_camera, road_bump, unknown), target_speed_kmh is null and
+   * this field is the only reference to the source speed.
+   *
+   * Display rule: show as "source speed (advisory)" in debug popups and tables.
+   * Do NOT imply this is a RoadAhead target speed for non-speed_limit events.
+   *
+   * WIP — NOT Product Canon. Stage 2 / Issue #99 P2 fix.
+   * (event-data Canon truths 1, 5; speed-reference Canon truths 4, 5)
+   */
+  route_source_speed_kmh?: number | null;
 
   /**
    * Source-type label from the Datakam/OpenSpeedcam type mapping.

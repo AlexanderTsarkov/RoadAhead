@@ -35,6 +35,17 @@
  *   WIP source-semantics evidence — not globally verified. Not Product Canon.
  *   (event-applicability Canon truth 8; direction-applicability research §3.E)
  *
+ * speed_kmh → target_speed_kmh mapping (P2 fix — Issue #99):
+ *   target_speed_kmh is set ONLY for normalized speed_limit events.
+ *   For all other event types (static_camera, road_bump, unknown), it is null.
+ *   Cameras and hazards carry a SPEED attribute in the source dataset; that
+ *   value is an advisory/source attribute of the sign or camera record and is
+ *   NOT a RoadAhead target speed rule. Assigning it to target_speed_kmh for
+ *   non-speed_limit events caused computeSpeedReference() to emit approach_target
+ *   for cameras/hazards — this was incorrect behavior.
+ *   The raw source speed is preserved in route_source_speed_kmh for debug/
+ *   provenance display on all event types (does not drive guidance).
+ *
  * What this adapter does NOT do:
  *   - Does not change evaluation logic or thresholds.
  *   - Does not promote any value to Product Canon.
@@ -135,8 +146,12 @@ export function datakamFacingToTravelDirection(facingDirectionDeg: number): numb
  *     ("unknown" is valid — routes to out_of_scope in selectEvents)
  *   RouteEvent.raw_type (num)  → PreparedEvent.raw_type (string, provenance)
  *   RouteEvent.lon, .lat       → PreparedEvent.lon, PreparedEvent.lat
- *   RouteEvent.speed_kmh       → PreparedEvent.target_speed_kmh
- *     (advisory context only — not legal authority; event-data Canon truths 1, 5)
+ *   RouteEvent.speed_kmh       → PreparedEvent.target_speed_kmh  (speed_limit only)
+ *     Set to null for static_camera, road_bump, unknown — source SPEED is an
+ *     advisory/source attribute of the record, not a RoadAhead target speed rule.
+ *     (speed-reference Canon truths 4, 5; event-data Canon truths 1, 5)
+ *   RouteEvent.speed_kmh       → PreparedEvent.route_source_speed_kmh (all types)
+ *     Preserved for debug/provenance display. Does not drive target-speed guidance.
  *   (direction_deg + 180) % 360 → PreparedEvent.source_direction_deg
  *     (effective vehicle travel direction — Datakam DIRECTION convention WIP)
  *   RouteEvent.direction_deg   → PreparedEvent.route_raw_facing_direction_deg
@@ -179,7 +194,16 @@ export function adaptRouteEventToPreparedEvent(ev: RouteEvent): PreparedEvent {
     normalized_type: ev.type,
     lon: ev.lon,
     lat: ev.lat,
-    target_speed_kmh: ev.speed_kmh,
+    // Only speed_limit events set target_speed_kmh. Cameras, hazards, and unknown
+    // events carry a SPEED attribute in the source dataset, but it is an advisory/
+    // source attribute of the sign or camera record — NOT a RoadAhead target speed
+    // rule. Setting it for non-speed_limit events caused computeSpeedReference()
+    // to incorrectly emit approach_target for cameras/hazards (P2 fix — Issue #99).
+    // Source speed is preserved in route_source_speed_kmh for all types.
+    target_speed_kmh: ev.type === "speed_limit" ? ev.speed_kmh : null,
+    // Raw source SPEED value preserved for debug/provenance display on all event
+    // types. Does NOT drive target-speed guidance for non-speed_limit events.
+    route_source_speed_kmh: ev.speed_kmh,
     // Effective vehicle travel direction — Datakam convention (facing + 180) % 360.
     // Used by directionCompatibility.ts for direction delta computation.
     source_direction_deg: effectiveTravelDirectionDeg,

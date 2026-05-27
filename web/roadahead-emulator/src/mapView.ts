@@ -373,7 +373,7 @@ function buildEventPopupHtml(
         <tr><td>raw type</td><td>${escapeHtmlMapView(ev.raw_type)}</td></tr>
         <tr><td>norm. type</td><td><em>${escapeHtmlMapView(ev.type)}</em></td></tr>
         ${evalStateRow}
-        <tr><td>speed</td><td>${ev.speed_kmh != null ? escapeHtmlMapView(ev.speed_kmh) + " km/h" : "—"}</td></tr>
+        <tr><td>speed (src)</td><td>${ev.speed_kmh != null ? escapeHtmlMapView(ev.speed_kmh) + ` km/h${ev.type !== "speed_limit" ? ' <em class="ev-popup-eval-note">advisory attr · not target</em>' : ""}` : "—"}</td></tr>
         <tr><td>dirtype (src)</td><td>${escapeHtmlMapView(rawDirtype)} ${dirtypeNote}</td></tr>
         ${dirtypeEvalRow}
         <tr><td>facing dir (src)</td><td>${escapeHtmlMapView(facingDirDeg)}° <em class="ev-popup-dir-note">raw DIRECTION · sign/camera facing</em></td></tr>

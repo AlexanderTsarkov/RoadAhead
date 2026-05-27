@@ -168,6 +168,33 @@ The raw `DIRTYPE` from the source dataset is preserved in `PreparedEvent.route_r
 - `1` — one direction; evaluator: directional; DIRECTION+180 applied (see above)
 - `2` — both directions; evaluator: bidirectional (mapped from 2 → 0)
 
+### Stage 2 SPEED field — target_speed_kmh restriction (Issue #99 P2 fix)
+
+The Datakam/OpenSpeedcam `SPEED` field is an **advisory/source attribute** of the sign or camera record. It records the speed value associated with a particular point in the source dataset. Its semantics depend on the event type:
+
+- For `TYPE=101` (`speed_limit`): `SPEED` is a candidate advisory speed value — the value associated with the speed-limit sign.
+- For cameras (`TYPE=1–5`): `SPEED` may represent the speed the camera is checking for, or a local speed context. It is **not** a RoadAhead speed-limit target.
+- For hazards (`TYPE=100, 102–106`): `SPEED` may represent a recommended caution speed near the hazard. It is **not** a RoadAhead speed-limit target.
+
+**Stage 2 adapter rule (Issue #99 P2 fix — `routeEventAdapter.ts`):**
+
+`PreparedEvent.target_speed_kmh` is set **only** for normalized `speed_limit` events:
+
+```
+speed_limit  → target_speed_kmh = SPEED value
+static_camera → target_speed_kmh = null
+road_bump    → target_speed_kmh = null
+unknown      → target_speed_kmh = null
+```
+
+The raw source `SPEED` value is preserved in `PreparedEvent.route_source_speed_kmh` for **all event types**, for debug/provenance display only. It does not drive target-speed guidance for non-speed_limit events.
+
+**Rationale:** `computeSpeedReference()` emits `approach_target` when the selected primary event has a non-null `target_speed_kmh`. Assigning `target_speed_kmh` from `SPEED` for cameras and hazards caused false `approach_target` guidance — creating speed-reference context from a camera's local speed attribute or a hazard's caution speed. This was incorrect; only a `speed_limit` event should create target-speed guidance.
+
+**Debug visibility:** marker popups and the debug table show the source speed as `speed (src): N km/h (advisory attr · not target)` for non-speed_limit events. The target speed column shows `–` for these events in the debug table; `route_source_speed_kmh` is shown as a secondary note below.
+
+**WIP — NOT Product Canon.** Applies only to adapted route events; synthetic fixtures are unaffected.
+
 ---
 
 ## Stage 2 mapping history

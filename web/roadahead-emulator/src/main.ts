@@ -2206,10 +2206,20 @@ function buildEventRow(
     ? `<br><span class="ev-row-dir-facing">facing: ${ev.route_raw_facing_direction_deg}°</span>`
     : "";
 
+  // Source speed display (Issue #99 P2 fix).
+  // target_speed_kmh is null for non-speed_limit events (camera, hazard, unknown).
+  // route_source_speed_kmh preserves the source SPEED attribute for debug/provenance
+  // display without implying it is a RoadAhead target speed rule.
+  // Only shown in debug table when target_speed_kmh is null and source speed exists.
+  const sourceSpeedNote =
+    r.target_speed_kmh == null && ev?.route_source_speed_kmh != null
+      ? `<br><span class="ev-row-source-speed">src: ${ev.route_source_speed_kmh} km/h <em>(advisory attr, not target)</em></span>`
+      : "";
+
   return `<tr class="event-row-${r.status}${debugRowClass}">
     <td><code>${escapeHtml(r.event_id)}</code></td>
     <td>${escapeHtml(r.normalized_type)}${sourceTypeLabelHtml}</td>
-    <td>${r.target_speed_kmh != null ? r.target_speed_kmh : "–"}</td>
+    <td>${r.target_speed_kmh != null ? r.target_speed_kmh : "–"}${sourceSpeedNote}</td>
     <td class="dist-cell">${distStr}</td>
     <td class="dist-cell proj-derived">${alongStr}</td>
     <td class="dist-cell proj-derived">${crossStr}</td>
