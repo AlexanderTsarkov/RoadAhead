@@ -2,6 +2,7 @@
  * RoadAhead Phase 0 — Web Route Emulator
  * Issue #88 / Stage 2: Real map baseline — OSM background, route line, vehicle marker.
  * Issue #97 / Stage 2: Prepared event markers — source-type-aware display.
+ * Issue #99 / Stage 2: Evaluation state overlay on prepared event markers.
  *
  * This module provides a Leaflet/OSM map surface for spatial evaluation of the
  * known route and vehicle position. It is a web-only debug / QA visualization
@@ -23,12 +24,56 @@
  *   - the event affects the three-circle control;
  *   - the event passed route applicability / relevance logic.
  *   Markers are candidate source observations only — emulator spatial QA.
+ *
+ * Evaluation state overlay (Issue #99 / Stage 2):
+ *   When prepared events are evaluated through the applicability pipeline,
+ *   marker visual state (border/weight/opacity) reflects evaluation status.
+ *   Source-type fill color is always preserved — evaluation state uses
+ *   border/weight/opacity only, not fill color.
+ *   Evaluation state is WIP debug data only — not final driver-facing behavior,
+ *   not legal truth, not safety-certified. NOT Product Canon.
  */
 
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { RouteGeometry } from "./contracts/routeGeometry.js";
 import type { RouteEvent } from "./contracts/routeEventDataset.js";
+
+// ---------------------------------------------------------------------------
+// Evaluation state overlay types (Issue #99 / Stage 2)
+//
+// Used to reflect applicability pipeline results on prepared event markers.
+// Marker fill color (source-type identity) is always preserved.
+// Evaluation state is shown through border/weight/opacity only.
+//
+// WIP emulator debug overlay — NOT Product Canon. NOT driver-facing behavior.
+// NOT legal truth. NOT safety-certified. NOT final warning/alert semantics.
+// ---------------------------------------------------------------------------
+
+/**
+ * Marker evaluation state derived from the applicability pipeline.
+ *
+ * Maps EventStatus / EventSelectionResult state to a compact visual category.
+ * Used by updateEventMarkerEvaluationStates() to style markers.
+ *
+ * WIP — NOT Product Canon. Stage 2 / Issue #99.
+ *
+ *   "primary"      — selected primary applicable event (EventStatus "selected").
+ *   "next"         — secondary candidate / next event in lookahead window.
+ *   "eligible"     — other candidate inside lookahead window (not selected).
+ *   "suppressed"   — suppressed by direction/cross-track/projection check.
+ *   "inactive"     — behind vehicle, too far ahead, or too close.
+ *   "out_of_scope" — event type not in evaluation scope ("unknown" types).
+ *   "default"      — no evaluation state known (synthetic mode or unmapped).
+ */
+export type MarkerEvalState =
+  | "primary"
+  | "next"
+  | "eligible"
+  | "suppressed"
+  | "inactive"
+  | "out_of_scope"
+  | "default";
 
 // ---------------------------------------------------------------------------
 // Mutable Leaflet instances
@@ -60,6 +105,88 @@ let vehicleMarker: L.CircleMarker | null = null;
  * EMULATOR SPATIAL QA ONLY — NOT Product Canon.
  */
 let eventMarkersLayer: L.LayerGroup | null = null;
+
+/**
+ * Map from RouteEvent.id → CircleMarker instance (Issue #99 / Stage 2).
+ *
+ * Populated by setEventMarkers() and cleared by clearEventMarkers().
+ * Used by updateEventMarkerEvaluationStates() to call setStyle() on existing
+ * markers without recreating them — avoids LayerGroup churn on every render.
+ *
+ * Keys are RouteEvent.id values, which also serve as PreparedEvent.event_id
+ * in the adapted events (via routeEventAdapter.ts). The evalStateMap passed
+ * to updateEventMarkerEvaluationStates() uses the same id values as keys.
+ *
+ * EMULATOR INTERNAL — NOT Product Canon. Stage 2 / Issue #99.
+ */
+let eventMarkerRefs: Map<string, L.CircleMarker> = new Map();
+
+// ---------------------------------------------------------------------------
+// Evaluation state visual style map (Issue #99 / Stage 2)
+//
+// Maps MarkerEvalState to Leaflet CircleMarker style overrides.
+// Fill color is NOT changed — source-type identity is always preserved.
+// Only border (color / weight) and fillOpacity are adjusted.
+//
+// WIP debug styling — NOT Product Canon. NOT driver-facing. NOT safety signal.
+// ---------------------------------------------------------------------------
+
+/**
+ * Leaflet CircleMarker style fields controlled by evaluation state.
+ * Only border and opacity are modified — fill color stays as source-type color.
+ */
+interface EvalStateStyle {
+  color: string;       // border color
+  weight: number;      // border weight
+  fillOpacity: number; // fill opacity (source-type fill color is preserved)
+}
+
+/** Style lookup by MarkerEvalState. WIP — NOT Product Canon. */
+const EVAL_STATE_STYLES: Record<MarkerEvalState, EvalStateStyle> = {
+  primary: {
+    color: "#FFD700", // gold border — primary event
+    weight: 3,
+    fillOpacity: 1.0,
+  },
+  next: {
+    color: "#ffffff",  // white border — next/secondary event
+    weight: 2.5,
+    fillOpacity: 0.95,
+  },
+  eligible: {
+    color: "#ffffff",  // white border — other eligible candidate
+    weight: 1.5,
+    fillOpacity: 0.85,
+  },
+  suppressed: {
+    color: "#9ca3af", // gray border — suppressed by direction/cross-track
+    weight: 1,
+    fillOpacity: 0.35,
+  },
+  inactive: {
+    color: "#d1d5db", // light gray border — behind / too far / too close
+    weight: 1,
+    fillOpacity: 0.2,
+  },
+  out_of_scope: {
+    color: "#d1d5db", // light gray border — unknown type, out of scope
+    weight: 1,
+    fillOpacity: 0.25,
+  },
+  default: {
+    color: "#ffffff",  // white border — no evaluation state (synthetic mode)
+    weight: 1,
+    fillOpacity: 0.85,
+  },
+};
+
+/**
+ * Return the visual style for a given MarkerEvalState.
+ * Falls back to "default" for any unmapped state.
+ */
+function getEvalStateStyle(state: MarkerEvalState): EvalStateStyle {
+  return EVAL_STATE_STYLES[state] ?? EVAL_STATE_STYLES["default"];
+}
 
 // ---------------------------------------------------------------------------
 // Source-type-label color map (Issue #97 / Stage 2)
@@ -141,21 +268,34 @@ function escapeHtmlMapView(s: string | number | null | undefined): string {
  *   1. source_type_label (primary — Datakam/OSC source semantics)
  *   2. raw_type (debugging provenance)
  *   3. normalized type (coarse emulator context only)
- *   4. speed_kmh
- *   5. dirtype / direction_deg
- *   6. source ref / id
- *   7. distance_to_route_m
- *   8. projected_route_distance_m
- *   9. lon / lat
+ *   4. eval state (Issue #99 — WIP debug, shown when available)
+ *   5. speed_kmh
+ *   6. dirtype / direction_deg
+ *   7. source ref / id
+ *   8. distance_to_route_m
+ *   9. projected_route_distance_m
+ *  10. lon / lat
  *
  * EMULATOR DEBUG / QA POPUP — NOT THE DRIVER-FACING UI.
  * NOT Product Canon. Candidate source observations only.
+ *
+ * @param ev - The prepared route event.
+ * @param evalState - Optional current evaluation state for this event.
+ *   WIP debug data only — not final driver-facing behavior, not Canon.
  */
-function buildEventPopupHtml(ev: RouteEvent): string {
+function buildEventPopupHtml(
+  ev: RouteEvent,
+  evalState?: MarkerEvalState
+): string {
   const projKm =
     ev.projected_route_distance_m != null
       ? (ev.projected_route_distance_m / 1000).toFixed(2) + " km"
       : "—";
+
+  const evalStateRow =
+    evalState != null && evalState !== "default"
+      ? `<tr><td>eval state</td><td><span class="ev-popup-eval-state ev-popup-eval-${escapeHtmlMapView(evalState)}">${escapeHtmlMapView(evalState)}</span> <em class="ev-popup-eval-note">WIP · debug only</em></td></tr>`
+      : "";
 
   return `
     <div class="ev-popup">
@@ -167,6 +307,7 @@ function buildEventPopupHtml(ev: RouteEvent): string {
         <tr><td>source label</td><td><strong>${escapeHtmlMapView(ev.source_type_label)}</strong></td></tr>
         <tr><td>raw type</td><td>${escapeHtmlMapView(ev.raw_type)}</td></tr>
         <tr><td>norm. type</td><td><em>${escapeHtmlMapView(ev.type)}</em></td></tr>
+        ${evalStateRow}
         <tr><td>speed</td><td>${ev.speed_kmh != null ? escapeHtmlMapView(ev.speed_kmh) + " km/h" : "—"}</td></tr>
         <tr><td>dirtype</td><td>${escapeHtmlMapView(ev.dirtype)}</td></tr>
         <tr><td>direction</td><td>${escapeHtmlMapView(ev.direction_deg)}°</td></tr>
@@ -309,8 +450,15 @@ export function updateVehicleMarker(lat: number, lon: number): void {
  * Only events whose source_type_label appears in `visibleLabels` are rendered.
  * This supports the per-label visibility filter without reloading the dataset.
  *
+ * When `initialEvalStates` is provided, initial visual style is applied per
+ * evaluation state (Issue #99 / Stage 2). This is WIP debug overlay only —
+ * not driver-facing, not Canon, not safety-certified.
+ *
  * Respects the existing route-load race guard: the caller (main.ts) must only
  * call this function after confirming the load token is still current.
+ *
+ * Stores marker refs in eventMarkerRefs for efficient eval state updates via
+ * updateEventMarkerEvaluationStates() without recreating markers.
  *
  * EMULATOR SPATIAL QA ONLY — NOT THE DRIVER-FACING UI. NOT Product Canon.
  * Rendering a marker does NOT mean:
@@ -319,40 +467,47 @@ export function updateVehicleMarker(lat: number, lon: number): void {
  *   - the event passed applicability logic;
  *   - the event affects the three-circle control.
  *
- * Issue #97 / Stage 2.
+ * Issue #97 / Stage 2. Issue #99 / Stage 2.
  *
  * @param events - Prepared route events to render.
  * @param visibleLabels - Set of source_type_label values to show. If a label
  *   is absent from the set, its markers are skipped (not rendered).
+ * @param initialEvalStates - Optional map from event id → MarkerEvalState for
+ *   initial visual styling. WIP debug overlay — not driver-facing, not Canon.
  */
 export function setEventMarkers(
   events: RouteEvent[],
-  visibleLabels: Set<string>
+  visibleLabels: Set<string>,
+  initialEvalStates?: Map<string, MarkerEvalState>
 ): void {
   if (!map || !eventMarkersLayer) return;
 
-  // Clear all previously rendered event markers.
+  // Clear all previously rendered event markers and refs.
   eventMarkersLayer.clearLayers();
+  eventMarkerRefs = new Map();
 
   for (const ev of events) {
     if (!visibleLabels.has(ev.source_type_label)) continue;
 
-    const color = getSourceTypeLabelColor(ev.source_type_label);
+    const fillColor = getSourceTypeLabelColor(ev.source_type_label);
+    const evalState = initialEvalStates?.get(ev.id) ?? "default";
+    const evalStyle = getEvalStateStyle(evalState);
 
     const marker = L.circleMarker([ev.lat, ev.lon], {
       radius: 6,
-      color: "#fff",
-      weight: 1,
-      fillColor: color,
-      fillOpacity: 0.85,
+      color: evalStyle.color,
+      weight: evalStyle.weight,
+      fillColor,
+      fillOpacity: evalStyle.fillOpacity,
     });
 
-    marker.bindPopup(buildEventPopupHtml(ev), {
-      maxWidth: 300,
+    marker.bindPopup(buildEventPopupHtml(ev, evalState), {
+      maxWidth: 320,
       className: "ev-popup-container",
     });
 
     eventMarkersLayer.addLayer(marker);
+    eventMarkerRefs.set(ev.id, marker);
   }
 }
 
@@ -365,12 +520,16 @@ export function setEventMarkers(
  *   - prepared dataset is missing / unloaded / invalid;
  *   - a new route load supersedes a prior one.
  *
+ * Also clears eventMarkerRefs so stale marker handles are not kept.
+ * (Issue #99 / Stage 2 — ref map cleanup on dataset change.)
+ *
  * Safe to call before the map is initialized (no-op).
  * EMULATOR SPATIAL QA ONLY — NOT Product Canon.
  */
 export function clearEventMarkers(): void {
   if (!eventMarkersLayer) return;
   eventMarkersLayer.clearLayers();
+  eventMarkerRefs = new Map();
 }
 
 /**
@@ -388,12 +547,54 @@ export function clearEventMarkers(): void {
  *
  * @param events - The full prepared events array (unchanged).
  * @param visibleLabels - Updated set of visible source_type_labels.
+ * @param currentEvalStates - Optional current evaluation states to apply.
+ *   WIP debug overlay — not driver-facing, not Canon. Issue #99 / Stage 2.
  */
 export function updateEventMarkersVisibility(
   events: RouteEvent[],
-  visibleLabels: Set<string>
+  visibleLabels: Set<string>,
+  currentEvalStates?: Map<string, MarkerEvalState>
 ): void {
-  setEventMarkers(events, visibleLabels);
+  setEventMarkers(events, visibleLabels, currentEvalStates);
+}
+
+/**
+ * Update evaluation state visual styling on existing prepared event markers.
+ *
+ * Calls setStyle() on each marker in eventMarkerRefs to update border color,
+ * weight, and fill opacity according to the new evaluation state. Fill color
+ * (source-type identity) is NOT changed — only border and opacity are adjusted.
+ *
+ * Called from main.ts render() on every render tick when prepared events are
+ * the active event source. Uses cached marker refs to avoid recreating markers.
+ *
+ * For markers not in eventMarkerRefs (filtered out by visibleLabels), the call
+ * is a no-op — hidden markers are not updated.
+ *
+ * For event IDs absent from evalStates, the "default" style is applied so
+ * markers revert to the baseline appearance when not being evaluated.
+ *
+ * EMULATOR DEBUG OVERLAY ONLY — NOT THE DRIVER-FACING UI. NOT Product Canon.
+ * Evaluation states shown are WIP debug data only — not final behavior,
+ * not legal truth, not safety-certified.
+ *
+ * Issue #99 / Stage 2.
+ *
+ * @param evalStates - Map from event id (RouteEvent.id = PreparedEvent.event_id)
+ *   → MarkerEvalState. Derived from EventSelectionResult in main.ts.
+ */
+export function updateEventMarkerEvaluationStates(
+  evalStates: Map<string, MarkerEvalState>
+): void {
+  for (const [eventId, marker] of eventMarkerRefs) {
+    const state = evalStates.get(eventId) ?? "default";
+    const style = getEvalStateStyle(state);
+    marker.setStyle({
+      color: style.color,
+      weight: style.weight,
+      fillOpacity: style.fillOpacity,
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

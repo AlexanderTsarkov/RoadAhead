@@ -2680,3 +2680,113 @@ code {
   padding-top: 0.2rem;
   border-top: 1px solid #1c2c3c;
 }
+
+/* ---------------------------------------------------------------------------
+ * Issue #99 / Stage 2 — Event source mode indicators and eval state overlay
+ *
+ * Event source label in operator summary and debug panel.
+ * Eval state popup rows and debug table provenance cells.
+ *
+ * WIP debug styling — NOT Product Canon. NOT driver-facing. NOT safety signal.
+ * --------------------------------------------------------------------------- */
+
+/* Operator summary — event source item */
+.op-summary-item-source {
+  grid-column: 1 / -1;
+  border-bottom: 1px solid #1c2c3c;
+  padding-bottom: 0.25rem;
+  margin-bottom: 0.15rem;
+}
+
+/* Event source mode badge colors */
+.op-source-prepared {
+  color: #4ade80;  /* green — prepared route events active */
+  font-weight: 600;
+}
+
+.op-source-no-prepared {
+  color: #f59e0b;  /* amber — no prepared events for this route */
+  font-weight: 600;
+}
+
+.op-source-synthetic {
+  color: #94a3b8;  /* slate — synthetic fixture */
+}
+
+/* Operator summary — source label for primary/next events */
+.op-summary-source-label {
+  color: #7dd3fc;  /* light blue — source_type_label */
+  font-weight: 600;
+}
+
+.op-summary-source-raw {
+  color: #64748b;  /* muted — raw_type provenance */
+  font-size: 0.72rem;
+}
+
+/* Operator summary — next event distance */
+.op-summary-dist {
+  color: #94a3b8;
+  font-size: 0.72rem;
+  font-style: italic;
+}
+
+/* Debug panel — event source banner */
+.debug-event-source-banner {
+  margin-bottom: 0.6rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.78rem;
+  border: 1px solid #243448;
+  background: #0f1e2c;
+}
+
+.debug-event-source-banner.op-source-prepared {
+  border-color: #166534;
+  background: #052e16;
+}
+
+.debug-event-source-banner.op-source-no-prepared {
+  border-color: #92400e;
+  background: #1c0a00;
+}
+
+.debug-event-source-note {
+  color: #64748b;
+  font-size: 0.7rem;
+  font-style: italic;
+}
+
+/* Debug table — source_type_label in norm. type cell */
+.ev-row-source-label {
+  font-size: 0.72rem;
+  color: #7dd3fc;
+  font-weight: 600;
+}
+
+.ev-row-raw-type {
+  font-size: 0.68rem;
+  color: #64748b;
+}
+
+/* Popup — evaluation state row (Issue #99 / Stage 2) */
+.ev-popup-eval-state {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.ev-popup-eval-note {
+  color: #94a3b8;
+  font-size: 0.7rem;
+}
+
+.ev-popup-eval-primary    { background: #FFD700; color: #1a1200; }
+.ev-popup-eval-next       { background: #3b82f6; color: #fff; }
+.ev-popup-eval-eligible   { background: #22c55e; color: #fff; }
+.ev-popup-eval-suppressed { background: #6b7280; color: #fff; }
+.ev-popup-eval-inactive   { background: #374151; color: #9ca3af; }
+.ev-popup-eval-out_of_scope { background: #1f2937; color: #6b7280; }
+.ev-popup-eval-default    { background: #1f2937; color: #9ca3af; }

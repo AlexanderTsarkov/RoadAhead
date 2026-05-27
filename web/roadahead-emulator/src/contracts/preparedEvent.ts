@@ -25,8 +25,20 @@
  * WIP and subject to revision by future implementation slices or ADRs.
  */
 
-/** POC V1 supported normalized event types (event-data Canon truth 6). */
-export type NormalizedEventType = "speed_limit" | "static_camera" | "road_bump";
+/**
+ * POC V1 supported normalized event types (event-data Canon truth 6).
+ *
+ * "unknown" added in Stage 2 / Issue #99 to support RouteEvent adaptation:
+ * RouteEventNormalizedType already includes "unknown" for raw TYPE codes that
+ * could not be confidently mapped. The evaluator routes "unknown" to
+ * out_of_scope (not processed) — it does not affect speed_limit / camera /
+ * road_bump evaluation. WIP — NOT Product Canon.
+ */
+export type NormalizedEventType =
+  | "speed_limit"
+  | "static_camera"
+  | "road_bump"
+  | "unknown";
 
 /**
  * A prepared normalized candidate event.
@@ -126,4 +138,36 @@ export interface PreparedEvent {
    * Provenance only — not used in emulator logic.
    */
   imported_at: string;
+
+  // ---------------------------------------------------------------------------
+  // Stage 2 / Issue #99 — optional route event provenance fields
+  //
+  // Only set when this PreparedEvent was adapted from a RouteEvent by
+  // routeEventAdapter.ts. Not set for synthetic fixture events (undefined).
+  //
+  // Used by display code to show source_type_label and source_ref from the
+  // Datakam/OpenSpeedcam route event dataset without hiding source semantics.
+  // Per #95 display contract: source_type_label is the primary human-readable
+  // label; raw_type (as string) is the debugging provenance.
+  //
+  // NOT used by the evaluation pipeline (projection, direction, selection).
+  // WIP — NOT Product Canon.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Source-type label from the Datakam/OpenSpeedcam type mapping.
+   * Mirrors RouteEvent.source_type_label. Only set for adapted route events.
+   * Display rule: show this FIRST as the primary human-readable label.
+   * (event-data Canon truth 8; Issue #95 display contract)
+   * WIP — NOT Product Canon.
+   */
+  route_source_type_label?: string;
+
+  /**
+   * Source row reference (IDX) from the route event dataset.
+   * Mirrors RouteEvent.source_ref. Only set for adapted route events.
+   * Used for provenance tracing in debug popups and status summaries.
+   * WIP — NOT Product Canon.
+   */
+  route_source_ref?: string;
 }
