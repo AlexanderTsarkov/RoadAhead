@@ -4,7 +4,10 @@
 **Issue:** #102 — Stage 2 — lifecycle/order diagnostics for prepared-event evaluation  
 **Parent issues:** #101, #86, #17  
 **Follows:** #99 / PR #100 — bridge prepared route events into applicability evaluation  
-**Date:** 2026-05-27
+**Date:** 2026-05-27  
+**Threshold source:** `EMULATOR_TUNING_DEFAULTS` as of this PR (Issue #102).
+All WIP threshold values in this document are read from that constant — not hardcoded.
+Values may change in future WIP tuning iterations.
 
 ---
 
@@ -50,10 +53,10 @@ Called by `computeSimulationState()` after projection. For each event:
 2. Compares `source_direction_deg` (vehicle travel direction — note: Datakam's DIRECTION field is the facing direction of the sign; the adapter inverts it by 180° before storing in `source_direction_deg`).
 3. Returns a `DirectionCompatibilityRecord` with status: `compatible` / `bidirectional` / `incompatible` / `unknown` / `unsupported`.
 
-Key thresholds (WIP defaults, not Canon):
-- `direction_delta_accept_deg`: direction delta at or below which the event is accepted (default 45°)
-- `direction_delta_reject_above_deg`: above which the event is rejected as incompatible (default 135°)
-- Ambiguous band: between the two → `unknown` or `unsupported`
+Key thresholds (WIP defaults from `EMULATOR_TUNING_DEFAULTS`, not Canon):
+- `direction_delta_accept_deg`: direction delta at or below which the event is accepted (default **45°**)
+- `direction_delta_reject_above_deg`: above which the event is rejected as incompatible (default **60°**)
+- Ambiguous band (45°–60°): `direction_unknown` or `direction_unsupported` (suppressed, debug-visible)
 
 ### 1.4 Cross-Track Filtering
 
@@ -83,12 +86,12 @@ if (signed_distance_m > guardrails.max_lookahead_m)
   → kind: suppressed
 ```
 
-Per-type WIP defaults (not Canon):
-- `speed_limit`: max_lookahead_m = 1500 m
-- `static_camera`: max_lookahead_m = 1500 m
-- `road_bump`: max_lookahead_m = 500 m (per Issue #75)
+Per-type WIP defaults from `EMULATOR_TUNING_DEFAULTS` (not Canon):
+- `speed_limit`: max_lookahead_m = **900 m**
+- `static_camera`: max_lookahead_m = **1100 m**
+- `road_bump`: max_lookahead_m = **500 m** (per Issue #75)
 
-**Critical observation (symptom 1 root area):** Each event type uses its own per-type max_lookahead_m. This means a `speed_limit` event at 1400 m is `too_far` for `road_bump` but is `candidate` for `speed_limit`. The evaluator does not compare across types when determining the window — an event's window is determined only by its own type's guardrails.
+**Critical observation (symptom 1 root area):** Each event type uses its own per-type max_lookahead_m. This means a `road_bump` event at 600 m is `too_far` (max 500 m) while a `speed_limit` event at the same distance is `candidate` (max 900 m). The evaluator does not compare across types when determining the window — an event's window is determined only by its own type's guardrails.
 
 ### 1.6 Min Display / Too_Close
 
@@ -101,12 +104,12 @@ if (0 < signed_distance_m < guardrails.min_display_distance_m)
   → kind: suppressed
 ```
 
-Per-type WIP defaults (not Canon):
-- `speed_limit`: min_display_distance_m = 30 m
-- `static_camera`: min_display_distance_m = 30 m
-- `road_bump`: min_display_distance_m = 15 m
+Per-type WIP defaults from `EMULATOR_TUNING_DEFAULTS` (not Canon):
+- `speed_limit`: min_display_distance_m = **175 m**
+- `static_camera`: min_display_distance_m = **250 m**
+- `road_bump`: min_display_distance_m = **100 m**
 
-**Critical observation (symptom 2 root area):** When an event enters the `too_close` zone (< min_display_distance_m), it is **suppressed entirely** — it no longer qualifies as `candidate` and cannot be `selected` (primary). No lifecycle transition to an active/passing state exists in the current baseline. The event simply disappears from primary/next before the vehicle marker visually reaches the event marker.
+**Critical observation (symptom 2 root area):** When an event's `signed_distance_m` drops below its type-specific `min_display_distance_m`, the event transitions to `too_close` → `inside_min_display_window` and is **suppressed entirely** — it no longer qualifies as `candidate` and cannot be `selected` (primary). No lifecycle transition to an active/passing state exists in the current baseline. The event simply disappears from primary/next while still well ahead of the vehicle — at 175 m for speed_limit, 250 m for static_camera, or 100 m for road_bump under current WIP defaults.
 
 ### 1.7 Primary / Secondary Selection
 
@@ -212,7 +215,7 @@ When driving along the Rostov1 route, it is possible for a farther event (e.g., 
 
 Root causes (from code investigation, before runtime confirmation):
 
-1. **Too_close suppression:** The closer event is < `min_display_distance_m` for its type (30 m for speed_limit/static_camera, 15 m for road_bump). If the closer event entered the `too_close` zone, it is suppressed entirely and the next eligible candidate (the farther event) becomes primary.
+1. **Too_close suppression:** The closer event is < `min_display_distance_m` for its type (175 m for speed_limit, 250 m for static_camera, 100 m for road_bump — WIP defaults from `EMULATOR_TUNING_DEFAULTS`). If the closer event entered the `too_close` zone, it is suppressed entirely and the next eligible candidate (the farther event) becomes primary. With the current large min_display values, this is a very common condition on Rostov1.
 
 2. **Direction conflict on closer event:** The closer event may have `direction_conflict` or `direction_unknown` status, causing it to be filtered before the sort. The farther event passes direction compatibility and becomes primary.
 
@@ -226,16 +229,19 @@ Root causes (from code investigation, before runtime confirmation):
 
 **Mechanism (from code analysis):**
 
-When the vehicle is within `min_display_distance_m` of the event (30 m for speed_limit/static_camera), the event transitions from `selected` (or `candidate`) to `too_close` → `inside_min_display_window`. There is no lifecycle transition to an "active/passing" state — the event is simply suppressed.
+When the vehicle's `signed_distance_m` to the event drops below the type-specific `min_display_distance_m`, the event transitions from `selected` (or `candidate`) to `too_close` → `inside_min_display_window`. There is no lifecycle transition to an "active/passing" state — the event is simply suppressed.
+
+Current WIP disappearance distances (from `EMULATOR_TUNING_DEFAULTS`, not Canon):
+- **speed_limit:** disappears at 175 m ahead. At 90 km/h, 175 m ≈ 7 seconds before arrival.
+- **static_camera:** disappears at 250 m ahead. At 90 km/h, 250 m ≈ 10 seconds before arrival.
+- **road_bump:** disappears at 100 m ahead. At 90 km/h, 100 m ≈ 4 seconds before arrival.
 
 This means:
-- The map marker changes from `primary` / `eligible` → `inactive` visually.
-- The three-circle driver-facing display loses its primary context.
-- This happens while the vehicle marker is still approaching the event marker visually.
+- The map marker changes from `primary` / `eligible` → `inactive` visually while the event marker is still well ahead of the vehicle.
+- The three-circle driver-facing display loses its primary context hundreds of metres before the physical event.
+- The disappearance distance is much larger than the physical pass point.
 
-The threshold is 30 m for speed_limit and static_camera (WIP default, not Canon). At highway speeds (e.g., 90 km/h), 30 m ≈ 1.2 seconds of travel — the vehicle has not physically passed the event when it disappears from the display.
-
-**Note:** `too_close` has the comment "WIP Slice 4.1 simplified minimum window only; not a general product rule that close events are always hidden. Future urgency/applicability behavior may revise this." This confirms the behavior is a known WIP simplification, not intended final behavior.
+**Note:** `too_close` has the code comment "WIP Slice 4.1 simplified minimum window only; not a general product rule that close events are always hidden. Future urgency/applicability behavior may revise this." This confirms the behavior is a known WIP simplification, not intended final behavior.
 
 ---
 
@@ -251,7 +257,7 @@ The evaluator filters each event independently, then sorts survivors. There is n
 
 ### 4.2 Different Thresholds Make Farther Events Eligible Earlier (Confirmed)
 
-Because each event type has its own `min_display_distance_m` and `max_lookahead_m`, a `road_bump` at 600 m may be `too_far` (max 500 m) while a `speed_limit` at 600 m is `candidate` (max 1500 m). Type mismatch effects are visible in mixed-type route event datasets like Rostov1.
+Because each event type has its own `min_display_distance_m` and `max_lookahead_m`, a `road_bump` at 600 m is `too_far` (max 500 m) while a `speed_limit` at 600 m is `candidate` (max 900 m) and a `static_camera` at 600 m is also `candidate` (max 1100 m). Similarly, within min_display: a `speed_limit` at 150 m is `too_close` (min 175 m) while a `road_bump` at the same distance is still `candidate` (min 100 m). Type mismatch effects are visible in mixed-type route event datasets like Rostov1 — WIP defaults from `EMULATOR_TUNING_DEFAULTS`, not Canon.
 
 ### 4.3 Too_Close Suppresses Instead of Transitioning to Active/Passing (Confirmed)
 
@@ -344,17 +350,19 @@ computeSimulationState(progress, speedKmh, route, events, config):
 
 ### WIP thresholds in use (not Canon)
 
-| Threshold | Config path | WIP default |
+Values read from `EMULATOR_TUNING_DEFAULTS` as of Issue #102. The diagnostics UI reads from this same constant — no hardcoded stale values.
+
+| Threshold | Config path | WIP default (as of #102) |
 |---|---|---|
-| speed_limit max_lookahead_m | `lookahead.speed_limit.max_lookahead_m` | 1500 m |
-| speed_limit min_display_distance_m | `lookahead.speed_limit.min_display_distance_m` | 30 m |
-| static_camera max_lookahead_m | `lookahead.static_camera.max_lookahead_m` | 1500 m |
-| static_camera min_display_distance_m | `lookahead.static_camera.min_display_distance_m` | 30 m |
-| road_bump max_lookahead_m | `lookahead.road_bump.max_lookahead_m` | 500 m |
-| road_bump min_display_distance_m | `lookahead.road_bump.min_display_distance_m` | 15 m |
+| speed_limit max_lookahead_m | `lookahead.speed_limit.max_lookahead_m` | **900 m** |
+| speed_limit min_display_distance_m | `lookahead.speed_limit.min_display_distance_m` | **175 m** |
+| static_camera max_lookahead_m | `lookahead.static_camera.max_lookahead_m` | **1100 m** |
+| static_camera min_display_distance_m | `lookahead.static_camera.min_display_distance_m` | **250 m** |
+| road_bump max_lookahead_m | `lookahead.road_bump.max_lookahead_m` | **500 m** |
+| road_bump min_display_distance_m | `lookahead.road_bump.min_display_distance_m` | **100 m** |
 | cross-track reject | `direction_applicability.route_projection_reject_m` | 50 m |
 | direction accept delta | `direction_applicability.direction_delta_accept_deg` | 45° |
-| direction reject delta | `direction_applicability.direction_delta_reject_above_deg` | 135° |
+| direction reject delta | `direction_applicability.direction_delta_reject_above_deg` | **60°** |
 
 ---
 
