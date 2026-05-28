@@ -39,6 +39,10 @@ import {
   type RouteOrderResult,
   ROUTE_ORDER_CLEAR_DISTANCE_M,
 } from "./emulator/routeOrderLifecycle.js";
+import {
+  computeSpeedReference,
+  type SpeedReferenceContext,
+} from "./emulator/speedReference.js";
 import { SYNTHETIC_SCENARIOS } from "./emulator/scenarios/syntheticScenarios.js";
 import type { EmulatorScenario } from "./emulator/scenarios/scenarioTypes.js";
 import {
@@ -525,6 +529,111 @@ function buildLifecycleMarkerStateMap(
   }
 
   return result;
+}
+
+// ---------------------------------------------------------------------------
+// Effective display selection — Issue #104 / Stage 2
+//
+// In prepared_route mode the lifecycle model (routeOrderResult) is the source
+// of truth for all user-visible displays. In synthetic mode, the old
+// eventSelection evaluator is used unchanged.
+//
+// getEffectiveDisplaySelection() is the single routing point: all display
+// surfaces (three-circle, operator header, upcoming strip, evidence snapshot)
+// must call this instead of reading state.eventSelection or state.speedReference
+// directly. Marker overlay and diagnostics already use routeOrderResult.
+//
+// WIP — NOT Product Canon. Issue #104 / Stage 2.
+// ---------------------------------------------------------------------------
+
+/**
+ * Unified display selection result consumed by all user-visible surfaces.
+ *
+ * In prepared_route mode: derived from state.routeOrderResult (lifecycle model).
+ * In synthetic mode: derived from state.eventSelection (old evaluator).
+ *
+ * WIP — NOT Product Canon. Issue #104 / Stage 2.
+ */
+interface EffectiveDisplaySelection {
+  /** Effective primary event for display. Null if none. */
+  primary: PreparedEvent | null;
+  /** Effective next event for display (next after primary in route order). Null if none. */
+  next: PreparedEvent | null;
+  /** Signed along-route distance to primary (m). Negative = past. Null if no primary. */
+  primaryDistM: number | null;
+  /** Signed along-route distance to next (m). Null if no next. */
+  nextDistM: number | null;
+  /** Applicability/lifecycle reason code for primary. Null if no primary. */
+  primaryReasonCode: string | null;
+  /**
+   * Lifecycle phase of primary event.
+   * Null in synthetic mode (lifecycle model not applied).
+   */
+  primaryLifecycle: string | null;
+  /** Speed reference context computed from the effective primary event. */
+  speedReference: SpeedReferenceContext;
+  /** Which model produced this selection. */
+  source: "lifecycle" | "event_selection";
+}
+
+/**
+ * Return the effective display selection for all user-visible surfaces.
+ *
+ * In prepared_route mode: routes through state.routeOrderResult so that
+ * active_reaction and passing events remain primary — no early disappearance.
+ * Speed reference is recomputed from the lifecycle primary event.
+ *
+ * In synthetic mode: routes through state.eventSelection exactly as before.
+ * state.speedReference is used directly (computed from eventSelection.primary).
+ *
+ * All display surfaces must call this instead of reading state.eventSelection
+ * or state.speedReference directly, to ensure marker overlay, diagnostics,
+ * three-circle, operator summary, and evidence snapshot all agree.
+ *
+ * WIP — NOT Product Canon. Issue #104 / Stage 2.
+ */
+function getEffectiveDisplaySelection(
+  state: SimulationState
+): EffectiveDisplaySelection {
+  const isPreparedRoute = deriveEventSourceMode().kind === "prepared_route";
+
+  if (isPreparedRoute) {
+    const ror = state.routeOrderResult;
+    const primaryRecord = ror.records.find(
+      (r) => r.event_id === ror.primary?.event_id
+    );
+    const nextRecord = ror.records.find(
+      (r) => r.event_id === ror.next?.event_id
+    );
+    return {
+      primary: ror.primary,
+      next: ror.next,
+      primaryDistM: primaryRecord?.signed_distance_m ?? null,
+      nextDistM: nextRecord?.signed_distance_m ?? null,
+      primaryReasonCode: primaryRecord?.applicabilityReason.code ?? null,
+      primaryLifecycle: primaryRecord?.lifecycle ?? null,
+      speedReference: computeSpeedReference(ror.primary),
+      source: "lifecycle",
+    };
+  } else {
+    const sel = state.eventSelection;
+    const primaryRecord = sel.primary
+      ? sel.records.find((r) => r.event_id === sel.primary!.event_id)
+      : null;
+    const nextRecord = sel.secondary
+      ? sel.records.find((r) => r.event_id === sel.secondary!.event_id)
+      : null;
+    return {
+      primary: sel.primary,
+      next: sel.secondary,
+      primaryDistM: primaryRecord?.distance_m ?? null,
+      nextDistM: nextRecord?.distance_m ?? null,
+      primaryReasonCode: primaryRecord?.applicabilityReason.code ?? null,
+      primaryLifecycle: null,
+      speedReference: state.speedReference,
+      source: "event_selection",
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1983,8 +2092,12 @@ function renderThreeCircles(state: SimulationState): void {
   const container = document.getElementById("three-circles");
   if (!container) return;
 
-  const { primary, secondary } = state.eventSelection;
-  const refState = state.speedReference.state;
+  // Issue #104: use effective display selection so that active_reaction/passing
+  // events remain primary in prepared_route mode — no early disappearance.
+  const eff = getEffectiveDisplaySelection(state);
+  const { primary } = eff;
+  const secondary = eff.next;
+  const refState = eff.speedReference.state;
 
   const primarySemantics = getEventDisplaySemantics(primary?.normalized_type);
   const secondarySemantics = getEventDisplaySemantics(secondary?.normalized_type);
@@ -1998,10 +2111,16 @@ function renderThreeCircles(state: SimulationState): void {
         ? String(primary.target_speed_kmh)
         : "–";
 
+  // Lifecycle phase sublabel (prepared_route mode only — WIP, NOT Canon).
+  const lifecycleNote =
+    eff.primaryLifecycle && eff.primaryLifecycle !== "notification"
+      ? ` · <span class="circle-lifecycle-badge lifecycle-${escapeHtml(eff.primaryLifecycle)}">${escapeHtml(eff.primaryLifecycle)}</span>`
+      : "";
+
   // Circle bottom label: type-aware advisory label + event id sublabel.
   const primaryBottomLabel =
     primary != null
-      ? `${escapeHtml(primarySemantics.primaryAdvisoryLabel)}<br><span class="circle-sublabel">${escapeHtml(primary.event_id)}</span>`
+      ? `${escapeHtml(primarySemantics.primaryAdvisoryLabel)}${lifecycleNote}<br><span class="circle-sublabel">${escapeHtml(primary.event_id)}</span>`
       : `no applicable event`;
 
   const secondaryValueText =
@@ -2030,7 +2149,7 @@ function renderThreeCircles(state: SimulationState): void {
       <div class="circle-label">${primaryBottomLabel}</div>
     </div>
 
-    <div class="circle circle-secondary" title="Secondary context — next event inside simplified candidate window (not global next event; full secondary semantics are WIP)">
+    <div class="circle circle-secondary" title="Next event in route order (lifecycle model in prepared_route mode; secondary candidate in synthetic mode — WIP)">
       <div class="circle-value">${secondaryValueText}</div>
       <div class="circle-label">${secondaryBottomLabel}</div>
     </div>
@@ -2043,7 +2162,7 @@ function renderThreeCircles(state: SimulationState): void {
     stateRow.innerHTML =
       `${escapeHtml(primarySemantics.refStatePrefix)}: ` +
       `<strong class="${stateClass}">${escapeHtml(refState)}</strong> — ` +
-      `<span class="state-reason">${escapeHtml(state.speedReference.reason)}</span>`;
+      `<span class="state-reason">${escapeHtml(eff.speedReference.reason)}</span>`;
   }
 }
 
@@ -2099,24 +2218,19 @@ function renderOperatorHeader(state: SimulationState): void {
   const summaryEl = document.getElementById("op-summary");
   if (!summaryEl) return;
 
-  const { primary, secondary } = state.eventSelection;
-  const refState = state.speedReference.state;
-  const targetSpeed = state.speedReference.target_speed_kmh;
+  // Issue #104: use effective display selection so operator summary agrees
+  // with three-circle display and lifecycle marker overlay.
+  const eff = getEffectiveDisplaySelection(state);
+  const primary = eff.primary;
+  const secondary = eff.next;
+  const refState = eff.speedReference.state;
+  const targetSpeed = eff.speedReference.target_speed_kmh;
   const { acceptedCount, suppressedCount, notProcessedCount } =
     getEventSelectionSummary(state);
 
-  // Find the selected primary record to extract reason code and distance.
-  const primaryRecord = primary
-    ? state.eventSelection.records.find((r) => r.event_id === primary.event_id)
-    : null;
-  const reasonCode = primaryRecord?.applicabilityReason.code ?? null;
-  const primaryDistM = primaryRecord?.distance_m ?? null;
-
-  // Find the secondary record to extract distance.
-  const secondaryRecord = secondary
-    ? state.eventSelection.records.find((r) => r.event_id === secondary.event_id)
-    : null;
-  const secondaryDistM = secondaryRecord?.distance_m ?? null;
+  const reasonCode = eff.primaryReasonCode;
+  const primaryDistM = eff.primaryDistM;
+  const secondaryDistM = eff.nextDistM;
 
   // Type-aware display semantics — UI only, no domain logic.
   const primarySemantics = getEventDisplaySemantics(primary?.normalized_type);
@@ -2139,10 +2253,22 @@ function renderOperatorHeader(state: SimulationState): void {
     ? `<code class="op-summary-event-id">${escapeHtml(primary.event_id)}</code>`
     : `<em class="op-summary-none">none</em>`;
 
-  // Primary distance
+  // Primary distance — show signed distance; negative means past event (passing phase).
   const primaryDistHtml =
     primaryDistM != null
-      ? `<span class="op-summary-dist">&nbsp;· ${primaryDistM.toFixed(0)} m ahead</span>`
+      ? primaryDistM >= 0
+        ? `<span class="op-summary-dist">&nbsp;· ${primaryDistM.toFixed(0)} m ahead</span>`
+        : `<span class="op-summary-dist op-dist-past">&nbsp;· ${Math.abs(primaryDistM).toFixed(0)} m past</span>`
+      : "";
+
+  // Lifecycle phase for primary (prepared_route mode only — WIP, NOT Canon).
+  const lifecycleHtml =
+    eff.primaryLifecycle && eff.primaryLifecycle !== "notification"
+      ? `<div class="op-summary-item">
+          <span class="op-summary-label">Lifecycle phase</span>
+          <code class="op-summary-value diag-lifecycle-${escapeHtml(eff.primaryLifecycle)}">${escapeHtml(eff.primaryLifecycle)}</code>
+          <span class="wip-inline">WIP · not Canon</span>
+        </div>`
       : "";
 
   // Source label for primary event — show source_type_label (primary) and raw_type
@@ -2208,6 +2334,7 @@ function renderOperatorHeader(state: SimulationState): void {
       </div>
       ${primarySourceLabelHtml}
       ${normTypeHtml}
+      ${lifecycleHtml}
       <div class="op-summary-item">
         <span class="op-summary-label">Ref state</span>
         <span class="op-summary-value ${stateClass}">${escapeHtml(refState)}</span>
@@ -3748,6 +3875,35 @@ interface UpcomingEventItem {
  * Not navigation. Not routing. Not ETA. (Issue #78 / Slice 4.9)
  */
 function getUpcomingEventItems(state: SimulationState): UpcomingEventItem[] {
+  // Issue #104: use lifecycle records in prepared_route mode so that
+  // active_reaction events (close ahead, was too_close) remain visible.
+  const isPreparedRoute = deriveEventSourceMode().kind === "prepared_route";
+
+  if (isPreparedRoute) {
+    const ror = state.routeOrderResult;
+    const primaryId = ror.primary?.event_id ?? null;
+    return ror.records
+      .filter(
+        (r) =>
+          (r.lifecycle === "notification" ||
+            r.lifecycle === "active_reaction" ||
+            r.lifecycle === "passing") &&
+          !r.is_hard_rejected
+      )
+      .sort((a, b) => b.signed_distance_m - a.signed_distance_m === 0
+        ? 0
+        : a.signed_distance_m < b.signed_distance_m ? -1 : 1
+      )
+      .slice(0, MAX_UPCOMING_STRIP_ITEMS)
+      .map((r) => ({
+        event_id: r.event_id,
+        normalized_type: r.normalized_type,
+        advisory_label: getEventDisplaySemantics(r.normalized_type).primaryAdvisoryLabel,
+        distance_m: r.signed_distance_m,
+        is_primary: r.event_id === primaryId,
+      }));
+  }
+
   const primaryId = state.eventSelection.primary?.event_id ?? null;
   return state.eventSelection.records
     .filter(
@@ -3999,9 +4155,11 @@ function escapeMd(s: string | number | null | undefined): string {
 function buildEvidenceSnapshotMarkdown(state: SimulationState): string {
   const { acceptedCount, suppressedCount, notProcessedCount } =
     getEventSelectionSummary(state);
-  const { primary } = state.eventSelection;
-  const refState = state.speedReference.state;
-  const targetSpeed = state.speedReference.target_speed_kmh;
+  // Issue #104: use effective display selection to agree with other surfaces.
+  const eff = getEffectiveDisplaySelection(state);
+  const primary = eff.primary;
+  const refState = eff.speedReference.state;
+  const targetSpeed = eff.speedReference.target_speed_kmh;
 
   let modeLine: string;
   if (selectedScenarioId) {
@@ -4025,46 +4183,83 @@ function buildEvidenceSnapshotMarkdown(state: SimulationState): string {
         ? "none"
         : `none (${primarySemantics.noSpeedLabel})`;
 
-  const tableHeader =
-    "| Event | Type | Status | Reason code | Kind | Eligible | Signed dist m | Cross-track m |";
-  const tableSep =
-    "|---|---|---|---|---|---|---:|---:|";
+  // Issue #104: in prepared_route mode, show lifecycle records to agree with
+  // marker overlay and diagnostics. In synthetic mode, show eventSelection records.
+  const isPreparedRoute = deriveEventSourceMode().kind === "prepared_route";
 
-  const tableRows = state.eventSelection.records.map((r) => {
-    const signedDist =
-      r.distance_m >= 0
-        ? `+${r.distance_m.toFixed(0)}`
-        : `${r.distance_m.toFixed(0)}`;
-    const crossTrack = r.projection_cross_track_m.toFixed(1);
-    const eligible = r.applicabilityReason.is_driver_facing_eligible
-      ? "yes"
-      : "no";
-    return (
-      `| ${escapeMd(r.event_id)}` +
-      ` | ${escapeMd(r.normalized_type)}` +
-      ` | ${escapeMd(r.status)}` +
-      ` | ${escapeMd(r.applicabilityReason.code)}` +
-      ` | ${escapeMd(r.applicabilityReason.kind)}` +
-      ` | ${escapeMd(eligible)}` +
-      ` | ${escapeMd(signedDist)}` +
-      ` | ${escapeMd(crossTrack)} |`
-    );
-  });
+  let tableHeader: string;
+  let tableSep: string;
+  let tableRows: string[];
+
+  if (isPreparedRoute) {
+    tableHeader =
+      "| Event | Type | Lifecycle | Reason code | Kind | Route# | Signed dist m | Cross-track m |";
+    tableSep =
+      "|---|---|---|---|---|---:|---:|---:|";
+    tableRows = state.routeOrderResult.records.map((r) => {
+      const signedDist =
+        r.signed_distance_m >= 0
+          ? `+${r.signed_distance_m.toFixed(0)}`
+          : `${r.signed_distance_m.toFixed(0)}`;
+      const crossTrack = r.projection_cross_track_m.toFixed(1);
+      return (
+        `| ${escapeMd(r.event_id)}` +
+        ` | ${escapeMd(r.normalized_type)}` +
+        ` | ${escapeMd(r.lifecycle)}` +
+        ` | ${escapeMd(r.applicabilityReason.code)}` +
+        ` | ${escapeMd(r.applicabilityReason.kind)}` +
+        ` | #${r.route_order_index + 1}` +
+        ` | ${escapeMd(signedDist)}` +
+        ` | ${escapeMd(crossTrack)} |`
+      );
+    });
+  } else {
+    tableHeader =
+      "| Event | Type | Status | Reason code | Kind | Eligible | Signed dist m | Cross-track m |";
+    tableSep =
+      "|---|---|---|---|---|---|---:|---:|";
+    tableRows = state.eventSelection.records.map((r) => {
+      const signedDist =
+        r.distance_m >= 0
+          ? `+${r.distance_m.toFixed(0)}`
+          : `${r.distance_m.toFixed(0)}`;
+      const crossTrack = r.projection_cross_track_m.toFixed(1);
+      const eligible = r.applicabilityReason.is_driver_facing_eligible
+        ? "yes"
+        : "no";
+      return (
+        `| ${escapeMd(r.event_id)}` +
+        ` | ${escapeMd(r.normalized_type)}` +
+        ` | ${escapeMd(r.status)}` +
+        ` | ${escapeMd(r.applicabilityReason.code)}` +
+        ` | ${escapeMd(r.applicabilityReason.kind)}` +
+        ` | ${escapeMd(eligible)}` +
+        ` | ${escapeMd(signedDist)}` +
+        ` | ${escapeMd(crossTrack)} |`
+      );
+    });
+  }
 
   const routeSourceLine =
     activeRouteSource.kind === "synthetic"
       ? "synthetic fixture (default)"
       : `GeoJSON import: ${activeRouteSource.filename}`;
 
+  const lifecycleLine = eff.primaryLifecycle
+    ? `- Primary lifecycle phase: ${escapeMd(eff.primaryLifecycle)} (WIP — not Canon)`
+    : null;
+
   const lines = [
     `## RoadAhead Emulator Manual Evidence Snapshot`,
     ``,
     `- Mode: ${modeLine}`,
+    `- Selection model: ${isPreparedRoute ? "route-order-first lifecycle (#104)" : "old evaluator (synthetic)"}`,
     `- Active route source: ${routeSourceLine}`,
     `- Route progress: ${progressPct}% / ${state.progress.toFixed(4)}`,
     `- Current speed: ${state.speedKmh} km/h`,
     `- Primary event: ${primaryLine}`,
     `- Primary event type: ${primary ? escapeMd(primary.normalized_type) : "none"}`,
+    ...(lifecycleLine ? [lifecycleLine] : []),
     `- Primary advisory context: ${escapeMd(primarySemantics.primaryAdvisoryLabel)}`,
     `- Speed reference: ${escapeMd(refState)}`,
     `- Target speed: ${targetLine}`,

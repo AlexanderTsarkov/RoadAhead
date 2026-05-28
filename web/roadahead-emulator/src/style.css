@@ -3026,6 +3026,24 @@ code.diag-mode-no_prepared     { color: #f87171; }
 .diag-row-active-reaction { background: #1a1f0e; }
 .diag-row-passing         { background: #1f120a; }
 
+/* Issue #104 — Lifecycle badge in three-circle display */
+.circle-lifecycle-badge {
+  display: inline-block;
+  font-size: 0.55rem;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  vertical-align: middle;
+  margin-left: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.lifecycle-active_reaction { background: #ca8a04; color: #fff; }
+.lifecycle-passing         { background: #c2410c; color: #fff; }
+
+/* Issue #104 — operator summary past-event distance */
+.op-dist-past { color: #fb923c; }
+
 /* Lifecycle phase cell color coding — WIP — NOT Product Canon */
 .diag-td-lifecycle code { font-size: 0.68rem; font-weight: 600; }
 code.diag-lifecycle-notification    { color: #a3e635; }
