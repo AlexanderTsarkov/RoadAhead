@@ -412,63 +412,6 @@ function getActiveEventsForSim(): PreparedEvent[] {
   }
 }
 
-/**
- * Build a map from event_id → MarkerEvalState for the prepared event markers.
- *
- * Derives the visual evaluation state for each event from EventSelectionResult:
- *   EventStatus "selected"   → "primary"
- *   secondary event id       → "next"
- *   EventStatus "candidate"  → "eligible"
- *   Suppressed statuses      → "suppressed"
- *   Behind/too_far/too_close → "inactive"
- *   out_of_scope             → "out_of_scope"
- *
- * WIP debug overlay — NOT Product Canon. Stage 2 / Issue #99.
- *
- * @param state - Current SimulationState from computeSimulationState().
- * @returns Map from event_id → MarkerEvalState for updateEventMarkerEvaluationStates().
- */
-function buildMarkerEvalStateMap(
-  state: SimulationState
-): Map<string, MarkerEvalState> {
-  const result = new Map<string, MarkerEvalState>();
-  const secondaryId = state.eventSelection.secondary?.event_id ?? null;
-
-  for (const record of state.eventSelection.records) {
-    let evalState: MarkerEvalState;
-
-    switch (record.status) {
-      case "selected":
-        evalState = "primary";
-        break;
-      case "candidate":
-        // Distinguish next (secondary) from other eligible candidates.
-        evalState = record.event_id === secondaryId ? "next" : "eligible";
-        break;
-      case "behind":
-      case "too_far":
-      case "too_close":
-        evalState = "inactive";
-        break;
-      case "off_route_cross_track":
-      case "direction_conflict":
-      case "direction_unknown":
-      case "direction_unsupported":
-      case "projection_missing":
-        evalState = "suppressed";
-        break;
-      case "out_of_scope":
-        evalState = "out_of_scope";
-        break;
-      default:
-        evalState = "default";
-    }
-
-    result.set(record.event_id, evalState);
-  }
-
-  return result;
-}
 
 /**
  * Build a map from event_id → MarkerEvalState using the route-order lifecycle
@@ -2181,8 +2124,9 @@ function renderThreeCircles(state: SimulationState): void {
 /**
  * Derive accepted / suppressed / not_processed counts from simulation state.
  *
- * Uses applicabilityReason.kind from each EventSelectionRecord.
- * Counts match the debug table grouping exactly.
+ * Issue #104: in prepared_route mode, counts come from routeOrderResult.records
+ * so they agree with the lifecycle model shown in three-circle / operator summary.
+ * In synthetic mode, counts come from eventSelection.records as before.
  *
  * EMULATOR DEBUG / QA ONLY — not driver-facing.
  */
@@ -2191,6 +2135,15 @@ function getEventSelectionSummary(state: SimulationState): {
   suppressedCount: number;
   notProcessedCount: number;
 } {
+  const isPreparedRoute = deriveEventSourceMode().kind === "prepared_route";
+  if (isPreparedRoute) {
+    const records = state.routeOrderResult.records;
+    return {
+      acceptedCount: records.filter((r) => r.applicabilityReason.kind === "accepted").length,
+      suppressedCount: records.filter((r) => r.applicabilityReason.kind === "suppressed").length,
+      notProcessedCount: records.filter((r) => r.applicabilityReason.kind === "not_processed").length,
+    };
+  }
   const records = state.eventSelection.records;
   return {
     acceptedCount: records.filter((r) => r.applicabilityReason.kind === "accepted").length,
@@ -3718,10 +3671,12 @@ function attachRouteDataPanelListeners(panel: HTMLElement): void {
     // Re-render markers with updated visibility (no route/dataset reload).
     // Pass current eval states so the visual overlay is preserved after filter
     // toggle (Issue #99 / Stage 2). WIP debug overlay — not driver-facing.
+    // Issue #104: use lifecycle marker states in prepared_route mode so the
+    // filter toggle does not revert markers to the old eventSelection overlay.
     if (routeEventsState.kind === "loaded") {
       const currentEvalStates =
         deriveEventSourceMode().kind === "prepared_route"
-          ? buildMarkerEvalStateMap(getState())
+          ? buildLifecycleMarkerStateMap(getState().routeOrderResult)
           : undefined;
       updateEventMarkersVisibility(
         routeEventsState.dataset.events,
